@@ -12,7 +12,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>prepo-PA · précision d’atterrissage</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.1.0">
+<link rel="stylesheet" href="style.css?v=0.2.0">
 </head>
 <body>
 <div id="map"></div>
@@ -24,7 +24,7 @@
   </div>
   <div class="spacer"></div>
   <button id="btnNorth" class="round" title="Nord en haut"><span id="compassNeedle">▲<small>N</small></span></button>
-  <button id="btnAxisUp" class="round" title="Étape de base vers le haut"><span class="axisIco">↑<small>AXE</small></span></button>
+  <button id="btnAxisUp" class="round" title="Axe de finale vers le haut"><span class="axisIco">↑<small>AXE</small></span></button>
   <button id="btnFit" class="round" title="Voir toute la figure">⤢</button>
   <button id="btnLocate" class="round" title="Ma position">⌖</button>
 </header>
@@ -32,17 +32,25 @@
 <div id="banner" class="hidden"></div>
 
 <nav id="quick">
-  <button id="qShowA" class="qa" title="Afficher la configuration de la 1re porte"></button>
-  <button id="qTurnA" class="qa" title="Sens du virage depuis la 1re porte"></button>
-  <button id="qShowB" class="qb" title="Afficher la configuration de la 2e porte"></button>
-  <button id="qTurnB" class="qb" title="Sens du virage depuis la 2e porte"></button>
-  <button id="qRec" title="Afficher / masquer le point de snap et son cercle">Snap</button>
+  <button id="qWind" title="Vent du jour : direction et force"></button>
+  <button id="qSide" title="Prépo à gauche ou à droite"></button>
+  <button id="qPrepo" title="Afficher / masquer la prépo">Prépo</button>
+  <button id="qPath" title="Afficher / masquer le chemin des prépos de 0 au vent max">0→7</button>
+  <button id="qSector" title="Afficher / masquer le secteur de finale">Secteur</button>
+  <button id="qReperes" title="Afficher / masquer les repères">Repères</button>
   <button id="qMeasure" title="Mesurer cap et distance entre deux points">📏</button>
-  <button id="qTicks" title="Graduations en degrés">0°</button>
-  <button id="qRings" title="Anneaux 1 m/s">◎</button>
+  <button id="qTicks" title="Graduations en degrés autour de la cible">0°</button>
 </nav>
 
-<div id="legend"></div>
+<div id="windBox" class="hidden">
+  <div class="wrow"><label>Vent : d'où il vient (°)</label>
+    <div class="stepper"><button data-wdir="-10">−10</button><button data-wdir="-5">−5</button><input id="w_dir" inputmode="decimal"><button data-wdir="5">+5</button><button data-wdir="10">+10</button></div></div>
+  <div class="wrow"><label>Force (m/s)</label>
+    <div class="stepper"><button data-wspd="-1">−1</button><button data-wspd="-0.5">−½</button><input id="w_spd" inputmode="decimal"><button data-wspd="0.5">+½</button><button data-wspd="1">+1</button></div></div>
+  <p class="hint" id="windInfo"></p>
+  <button id="windOk" class="wide primary">OK</button>
+</div>
+
 <div id="measureBox" class="hidden"></div>
 
 <section id="sheet" class="hidden">
@@ -59,34 +67,22 @@
     <p class="hint">Touche un nom pour ouvrir la zone (tout s'enregistre au fur et à mesure). Tiens ≡ et glisse pour changer l'ordre.</p>
     <ul id="zoneList"></ul>
 
-    <h3>Portes</h3>
-    <div class="row"><button id="btnPlaceS" class="wide">📍 Porte unique</button></div>
+    <h3>Cible</h3>
     <div class="row grid2">
-      <button id="btnPlaceA" class="wide">📍 Porte 1</button>
-      <button id="btnPlaceB" class="wide">📍 Porte 2</button>
+      <button id="btnPlaceT" class="wide">📍 Toucher la carte</button>
+      <button id="btnGpsT" class="wide">📡 Cible ici (GPS)</button>
     </div>
-    <p class="hint" id="placeHint">Touche un bouton puis la carte pour (re)placer cette porte. Appui long sur une porte pour déplacer cette porte seule ; appui long sur le trait blanc entre les portes pour déplacer tout le couloir (cap et longueur conservés).</p>
+    <h3>Repères</h3>
+    <div class="row grid2">
+      <button id="btnPlaceR" class="wide">＋ Toucher la carte</button>
+      <button id="btnGpsR" class="wide">📡 Repère ici (GPS)</button>
+    </div>
+    <p class="hint">« GPS » : tiens-toi sur le point, l'appli prend ta position exacte. Appui long sur la cible ou un repère pour le déplacer ; appui court sur un repère pour le nommer ou le supprimer.</p>
     <p class="hint" id="axisInfo"></p>
-    <div class="row">
-      <label id="capLabel">Cap 1re → 2e porte (°)</label>
-      <div class="stepper">
-        <button data-rot="-5">−5</button><button data-rot="-1">−1</button>
-        <input id="c_heading" inputmode="decimal">
-        <button data-rot="1">+1</button><button data-rot="5">+5</button>
-      </div>
-    </div>
-    <div class="row" id="lenRow">
-      <label>Longueur du couloir (m)</label>
-      <div class="stepper">
-        <button data-len="-5">−5</button><button data-len="-1">−1</button>
-        <input id="c_len" inputmode="decimal">
-        <button data-len="1">+1</button><button data-len="5">+5</button>
-      </div>
-    </div>
 
     <h3>Export</h3>
-    <div class="row"><button id="btnPdf" class="wide primary">📄 PDF A4 paysage</button></div>
-    <p class="hint">Étape de base vers le haut, nord dans un coin, tel qu'affiché.</p>
+    <div class="row"><button id="btnPdf" class="wide primary">📄 PDF A4</button></div>
+    <p class="hint">Axe de finale vers le haut, nord dans un coin, portrait ou paysage selon la figure, tel qu'affiché.</p>
 
     <h3>Sauvegarde</h3>
     <div class="row grid2">
@@ -99,41 +95,34 @@
   </div>
 
   <div id="tab-pilote" class="tab hidden">
-    <p class="hint">Ta manœuvre : ces réglages sont communs à <b>toutes</b> tes zones. Les modifier met à jour toutes les zones enregistrées.</p>
-    <h3>Durée de la manœuvre</h3>
+    <p class="hint">Ta manœuvre : ces réglages sont communs à <b>toutes</b> tes zones. Le vent du jour (direction, force) se règle sur la carte avec 🌬.</p>
+    <h3>Secteur de finale</h3>
     <div class="grid2">
-      <div><label>Abattée + rotation (s)</label><input id="p_t1" inputmode="decimal"></div>
-      <div><label>Recouvrement, du snap aux portes (s)</label><input id="p_t2" inputmode="decimal"></div>
+      <div><label>Ouverture totale (°)</label><input id="p_sector" inputmode="decimal"></div>
+      <div><label>Vent max de compétition (m/s)</label><input id="p_vmax" inputmode="decimal"></div>
+    </div>
+    <p class="hint">Le secteur part de la cible, centré sur l'axe du vent, côté d'où tu arrives ; il s'arrête à la prépo affichée.</p>
+
+    <h3>Prépo par vent nul</h3>
+    <div class="grid2">
+      <div><label>Profondeur (m)</label><input id="p_d0" inputmode="decimal"></div>
+      <div><label>Déport latéral (m)</label><input id="p_s0" inputmode="decimal"></div>
+      <div><label>Hauteur (m)</label><input id="p_h0" inputmode="decimal"></div>
     </div>
 
-    <h3>Vent de référence des cercles</h3>
+    <h3>Prépo au vent max</h3>
     <div class="grid2">
-      <div><label>Vent (m/s)</label><input id="p_vref" inputmode="decimal"></div>
+      <div><label>Profondeur (m)</label><input id="p_dM" inputmode="decimal"></div>
+      <div><label>Déport latéral (m)</label><input id="p_sM" inputmode="decimal"></div>
+      <div><label>Hauteur (m)</label><input id="p_hM" inputmode="decimal"></div>
     </div>
-    <p class="hint">S'applique aux cercles du point de setup et du point de snap.</p>
+    <p class="hint">Profondeur : distance depuis la cible le long de l'axe du vent. Déport : sur le côté, à droite ou à gauche face à la cible (bouton Prépo D / G). Entre vent nul et vent max, l'appli calcule en ligne droite.</p>
 
-    <h3>Point de setup (vent nul)</h3>
+    <h3>Zone de prépo</h3>
     <div class="grid2">
-      <div><label>Déport arrière (m)</label><input id="p_setupBack" inputmode="decimal"></div>
-      <div><label>Déport latéral (m)</label><input id="p_setupSide" inputmode="decimal"></div>
-      <div><label>Hauteur de setup (m)</label><input id="p_setupHeight" inputmode="decimal"></div>
+      <div><label>Fraction du secteur (0 = point)</label><input id="p_zoneFrac" inputmode="decimal"></div>
     </div>
-    <p class="hint">Le déport latéral se met du côté du virage (valeur négative = côté opposé). La hauteur est un aide-mémoire, sans effet sur la carte.</p>
-
-    <h3>Point de snap (vent nul)</h3>
-    <div class="grid2">
-      <div><label>Déport arrière (m)</label><input id="p_recBack" inputmode="decimal"></div>
-    </div>
-
-    <h3>Étape de base (avant le setup)</h3>
-    <div class="grid2">
-      <div><label>Durée (s)</label><input id="p_legTime" inputmode="decimal"></div>
-      <div><label>Vitesse (m/s)</label><input id="p_legSpeed" inputmode="decimal"></div>
-      <div><label>Hauteur du point d'entrée (m)</label><input id="p_legHeight" inputmode="decimal"></div>
-    </div>
-    <p class="hint" id="legInfo"></p>
-    <p class="hint">Perpendiculaire à l'axe de poser, venant de l'extérieur et dirigée vers l'axe ; elle finit au point de setup. Longueur tracée = durée × vitesse. La hauteur du point d'entrée est un aide-mémoire, sans effet sur la carte.</p>
-
+    <p class="hint">0 : la prépo est un point. Sinon (ex. 0,67) : cercle dont le diamètre est la largeur du secteur à cette fraction de sa longueur, depuis la cible.</p>
   </div>
 
 </section>
@@ -142,7 +131,7 @@
   <div class="box">
     <p id="dlgText"></p>
     <input id="dlgInput">
-    <div class="grid2"><button id="dlgCancel">Annuler</button><button id="dlgOk" class="primary">OK</button></div>
+    <div class="dlgbtns"><button id="dlgDel" class="danger hidden"></button><button id="dlgCancel">Annuler</button><button id="dlgOk" class="primary">OK</button></div>
   </div>
 </div>
 
@@ -166,9 +155,9 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=0.1.0"></script>
-<script src="vendor/leaflet-rotate.js?v=0.1.0"></script>
-<script src="geo.js?v=0.1.0"></script>
-<script src="app.js?v=0.1.0"></script>
+<script src="vendor/leaflet.js?v=0.2.0"></script>
+<script src="vendor/leaflet-rotate.js?v=0.2.0"></script>
+<script src="geo.js?v=0.2.0"></script>
+<script src="app.js?v=0.2.0"></script>
 </body>
 </html>

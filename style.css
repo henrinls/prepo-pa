@@ -52,12 +52,11 @@ button:disabled{opacity:.6}
 #quick button.on{color:#fff;border-color:#ddd;background:rgba(40,40,40,.9)}
 #quick .qa,#quick .qb{border-color:#ff2020}
 #quick #qTurnA,#quick #qTurnB{color:#fff}
-#quick #qShowA:not(.on),#quick #qShowB:not(.on),#quick #qTicks:not(.on),#quick #qRings:not(.on){opacity:.55;text-decoration:line-through}
+#quick #qSector:not(.on),#quick #qPrepo:not(.on),#quick #qPath:not(.on),#quick #qReperes:not(.on),#quick #qTicks:not(.on){opacity:.55;text-decoration:line-through}
 #btnNorth #compassNeedle{display:inline-flex;flex-direction:column;align-items:center;line-height:.8;font-size:15px;color:#ff5a4a;transition:transform .1s}
 #btnNorth #compassNeedle small{font-size:9px;color:#fff;font-weight:700}
 #btnNorth:not(.rotated){opacity:.75}
 #btnNorth.rotated{border-color:#ff5a4a}
-#quick #qRec:not(.on){opacity:.55;text-decoration:line-through}
 @media (orientation:landscape){#legend{left:auto;right:64px;bottom:calc(10px + env(safe-area-inset-bottom))}}
 #btnAxisUp .axisIco{display:inline-flex;flex-direction:column;align-items:center;line-height:.85;font-size:17px;color:#e879f9;font-weight:700}
 #btnAxisUp .axisIco small{font-size:8px;color:#fff}
@@ -88,3 +87,19 @@ button.danger{border-color:#a33;color:#ff8a8a}
 .sarrow{-webkit-touch-callout:none;user-select:none}.sarrow.lifting svg{transform:scale(1.3)}
 /* Paysage : l'îlot noir de l'iPhone masque un bord (gauche ou droit selon le sens) → boutons de gauche décalés d'environ 3/4 de bouton */
 @media (orientation:landscape){#quick{left:53px}#top{padding-left:55px;padding-right:55px}.leaflet-right .leaflet-control-zoom{margin-right:55px}.leaflet-left .leaflet-control-scale{margin-left:55px}#legend{right:110px}}
+/* prepo-PA */
+#quick #qSide{border-color:#ff2020;color:#fff}
+#quick #qWind{border-color:#ff8c00;color:#fff;height:auto;min-height:38px;line-height:1.15;padding:3px 7px;font-size:12px}
+#quick #qWind.warn{background:#ffd400;color:#111;border-color:#ffd400}
+#quick #qPath{border-color:#ffd400}#quick #qSector{border-color:#ff8c00}
+#windBox{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(60px + env(safe-area-inset-bottom));width:min(94vw,420px);background:rgba(18,18,18,.95);border:2px solid #ff8c00;border-radius:14px;padding:10px 12px;z-index:1050}
+#windBox .wrow{margin-bottom:8px}#windBox .stepper button{min-width:40px}
+.target{-webkit-touch-callout:none;user-select:none}
+.target span{display:block;width:34px;height:34px;border-radius:50%;background:radial-gradient(circle,#ff2020 0 3px,#fff 3px 7px,#ff2020 7px 11px,#fff 11px 15px,transparent 15px);box-shadow:0 0 0 1.5px #111 inset}
+.target.lifting span{transform:scale(1.35)}
+.rep{-webkit-touch-callout:none;user-select:none}
+.rep span{position:absolute;left:7px;top:7px;width:12px;height:12px;background:#fff;border:2px solid #111;transform:rotate(45deg)}
+.rep b{position:absolute;left:26px;top:50%;transform:translateY(-50%);white-space:nowrap;font-size:13px;color:#fff;text-shadow:0 0 3px #000,0 0 3px #000,0 0 2px #000}
+.rep.lifting span{transform:rotate(45deg) scale(1.4)}
+.plabel span{position:absolute;transform:translate(6px,-18px);white-space:nowrap;font-size:12px;font-weight:700;color:#ffd400;text-shadow:0 0 3px #000,0 0 3px #000,0 0 2px #000}
+.dlgbtns{display:flex;gap:8px;justify-content:flex-end}.dlgbtns button{flex:1}

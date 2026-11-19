@@ -4,122 +4,122 @@ window.addEventListener('error', e => {
   const t = document.getElementById('toast');
   if (t) { t.textContent = 'Erreur : ' + (e.message || 'inconnue') + ' — ferme et rouvre l\'appli'; t.classList.remove('hidden'); }
 });
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 const TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 const TILE_CACHE = 'pa-tiles-v1';
+// Réglages de la manœuvre (communs à toutes les zones) : secteur de finale, vent max, prépo par vent nul et au vent max
 const DEFAULT_PARAMS = {
-  t1: 10, t2: 4, setupBack: 100, setupSide: 60, recBack: 30,
-  vref: 5, legLen: 150, legTime: 10, legSpeed: 15, legHeight: 300, setupHeight: null, rings: true, ticks: true, labels: true, rec: true
+  sector: 30, vmax: 7,
+  d0: 250, s0: 80, h0: 300,     // prépo par vent nul : profondeur, déport latéral, hauteur (m)
+  dM: 80, sM: 30, hM: 150,      // prépo au vent max
+  zoneFrac: 0,                  // zone de prépo : 0 = simple point ; sinon diamètre = largeur du secteur à cette fraction
+  ticks: true
 };
-// Mêmes couleurs pour les deux configurations (demande d'Henri)
-const CFG_COLORS = { setup: '#ff2020', rec: '#ffd400', leg: '#000000' };
-const PALETTE = { A: CFG_COLORS, B: CFG_COLORS };
-const GATE_COLOR = '#ff8c00', AXIS_COLOR = '#ffffff';
+const PROFILE_KEYS = ['sector', 'vmax', 'd0', 's0', 'h0', 'dM', 'sM', 'hM', 'zoneFrac'];
+const C_TARGET = '#ff2020', C_SECTOR = '#ff8c00', C_PREPO = '#ff2020', C_PATH = '#ffd400', C_REP = '#ffffff';
 const isDark = c => c === '#000000';
 
-// ---------- Stockage ----------
+// ---------- Stockage (clés pa.* : séparées de Setup PSV, même site) ----------
 const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { toast('Enregistrement impossible sur cet appareil'); } }
 };
 const clone = o => JSON.parse(JSON.stringify(o));
-
-// Passage du format v1 (une porte + cap) au format v2 (portes A et B)
+const SHOW_DEFAULT = { sector: true, prepo: true, path: true, reperes: true };
 function upgrade(z) {
   if (!z) return z;
   z.params = Object.assign({}, DEFAULT_PARAMS, z.params || {});
-  if (z.gates && !z.gateA) {
-    const h = +z.params.heading || 0, rad = h * Math.PI / 180;
-    z.gateA = z.gates;
-    z.gateB = Geo.fromLocal(z.gates, { x: 100 * Math.sin(rad), y: 100 * Math.cos(rad) });
-    z.turnA = z.params.turn || 'G';
-    z.turnB = z.params.turn || 'G';
-  }
-  delete z.gates; delete z.params.heading; delete z.params.turn; delete z.params.corridor;
-  z.turnA = z.turnA || 'G'; z.turnB = z.turnB || 'G'; z.show = z.show || 'AB'; z.single = !!z.single;
+  z.show = Object.assign({}, SHOW_DEFAULT, typeof z.show === 'object' ? z.show : {});
+  z.reperes = Array.isArray(z.reperes) ? z.reperes : [];
+  z.side = z.side === 'G' ? 'G' : 'D';
+  if (typeof z.windDir !== 'number') z.windDir = null;
+  if (typeof z.windSpeed !== 'number') z.windSpeed = 0;
   return z;
 }
 let zones = store.get('pa.zones', []).map(upgrade);
 let current = upgrade(store.get('pa.current', null)) || newZone(null);
+// La copie de base (v0.1) pouvait contenir des zones PSV vides : on ne garde que les zones PA
+zones = zones.filter(z => !z.gateA || z.target);
 store.set('pa.zones', zones);
+if (current.gateA && !current.target) current = newZone(null);
 
-// ---------- Profil pilote : réglages communs à toutes les zones ----------
-// Temps du virage, déports du setup et du point de snap, vent de référence : c'est la façon de tourner
-// d'Henri, pas une propriété de la zone. Une modification se répercute sur toutes les zones enregistrées.
-const PROFILE_KEYS = ['t1', 't2', 'setupBack', 'setupSide', 'recBack', 'vref', 'legLen', 'legTime', 'legSpeed', 'legHeight', 'setupHeight']; // + étape de base
-let profile = store.get('pa.profile', null);
-if (!profile) profile = {};
-PROFILE_KEYS.forEach(k => { if (profile[k] === undefined) profile[k] = current.params[k] !== undefined ? current.params[k] : DEFAULT_PARAMS[k]; }); // complète un profil plus ancien
-// Longueur de l'étape de base = durée × vitesse (la longueur n'est plus saisie)
-function legLenOf(p) { return Math.round((+p.legTime || 0) * (+p.legSpeed || 0)); }
-profile.legLen = legLenOf(profile); store.set('pa.profile', profile);
+// ---------- Manœuvre : réglages communs à toutes les zones ----------
+let profile = store.get('pa.profile', null) || {};
+PROFILE_KEYS.forEach(k => { if (profile[k] === undefined) profile[k] = DEFAULT_PARAMS[k]; });
+Object.keys(profile).forEach(k => { if (!PROFILE_KEYS.includes(k)) delete profile[k]; }); // restes de la copie PSV
 store.set('pa.profile', profile);
 function applyProfile(z) { if (z && z.params) PROFILE_KEYS.forEach(k => { z.params[k] = profile[k]; }); }
 applyProfile(current); zones.forEach(applyProfile); store.set('pa.zones', zones);
-// Plus de bouton « Enregistrer » : une ancienne zone en cours, jamais enregistrée mais avec ses portes, rejoint la liste
-if (!current.id && current.gateA && current.gateB) { current.id = 'z' + Date.now(); zones.push(clone(current)); store.set('pa.zones', zones); store.set('pa.current', current); }
 
 function newZone(center) {
   return upgrade({
     id: null, name: 'Nouvelle zone',
     center: center || { lat: 46.6, lng: 2.4 }, zoom: center ? 17 : 6,
-    gateA: null, gateB: null, turnA: 'G', turnB: 'G', show: 'AB',
-    params: Object.assign({}, DEFAULT_PARAMS, store.get('pa.lastParams', {}))
+    target: null, windDir: null, windSpeed: 0, side: 'D', reperes: [],
+    params: Object.assign({}, DEFAULT_PARAMS)
   });
 }
 function persist() {
   current.center = map.getCenter(); current.zoom = map.getZoom(); current.updated = Date.now();
   store.set('pa.current', current);
-  store.set('pa.lastParams', current.params);
   if (current.id) {
     const i = zones.findIndex(z => z.id === current.id);
     if (i >= 0) { zones[i] = clone(current); store.set('pa.zones', zones); }
   }
 }
 
-// Noms affichés : cap de l'axe de poser sur 3 chiffres + G/D (jamais A/B à l'écran)
-const hdg = h => String(Math.round(h) % 360).padStart(3, '0') + '°';
-function headingOf(key) { const h = axisHeading(); return key === 'A' ? h : (h + 180) % 360; }
-// Nom d'un sens de poser : point cardinal le plus proche ; pile entre deux (45°, 135°…) → N ou S par convention
+const hdg = h => String(Math.round(((h % 360) + 360) % 360)).padStart(3, '0') + '°';
 function cardOf(h) { h = ((h % 360) + 360) % 360; if (h >= 315 || h <= 45) return 'N'; if (h >= 135 && h <= 225) return 'S'; return h < 180 ? 'E' : 'O'; }
-function cfgName(c) { return `${cardOf(c.heading)} ${c.turn}`; }
-function cfgNameKey(key) { return hasGates() ? `${cardOf(headingOf(key))} ${current['turn' + key]}` : (key === 'A' ? 'porte 1' : 'porte 2'); }
-const showLabels = () => false; // textes sur les éléments : jamais affichés (demande d'Henri)
-const showRec = () => current.params.rec !== false; // point de snap + son cercle (le temps de recouvrement = du point de snap aux portes)
+const fmt1 = v => (Math.round(v * 10) / 10).toString().replace('.', ',');
 
 // ---------- Figure (calcul pur, réutilisé par la carte et le PDF) ----------
-function hasGates() { return !!(current.gateA && current.gateB); }
-function axisHeading() { return Geo.bearingOf(Geo.toLocal(current.gateA, current.gateB)); }
-function corridorLength() { const v = Geo.toLocal(current.gateA, current.gateB); return Math.hypot(v.x, v.y); }
-
-// Une configuration = une porte (origine), le cap du poser depuis cette porte, le sens du virage.
-function configs() {
-  if (!hasGates()) return [];
-  const hA = axisHeading(), hB = (hA + 180) % 360, out = [];
-  const sh = current.show || 'AB';
-  if (current.single ? sh !== 'none' : (sh === 'AB' || sh === 'A')) out.push({ key: 'A', gate: current.gateA, heading: hA, turn: current.turnA });
-  if (!current.single && (sh === 'AB' || sh === 'B')) out.push({ key: 'B', gate: current.gateB, heading: hB, turn: current.turnB });
-  return out.map(c => {
-    const g = Geo.compute(Object.assign({}, current.params, { heading: c.heading, turn: c.turn }));
-    const ll = v => Geo.fromLocal(c.gate, v);
-    return Object.assign(c, {
-      geo: g, colors: PALETTE[c.key],
-      setup: ll(g.setup), rec: ll(g.rec), legStart: ll(g.legStart),
-      behind: ll({ x: -g.f.x * Math.max(+current.params.recBack || 0, 15), y: -g.f.y * Math.max(+current.params.recBack || 0, 15) })
-    });
-  });
+// Repère local centré sur la cible (x = Est, y = Nord, en m).
+// Le vent vient de windDir : on pose face au vent (cap de finale = windDir), en arrivant du côté sous le vent.
+function hasTarget() { return !!current.target; }
+function hasWind() { return typeof current.windDir === 'number'; }
+function finalHeading() { return hasWind() ? ((current.windDir % 360) + 360) % 360 : 0; }
+function prepoAt(v) { // prépo pour un vent de v m/s, interpolée en ligne droite entre vent nul et vent max
+  const p = current.params, vm = Math.max(0.1, +p.vmax || 7), k = Math.min(1, Math.max(0, (+v || 0) / vm));
+  const lerp = (a, b) => (+a || 0) + ((+b || 0) - (+a || 0)) * k;
+  const d = lerp(p.d0, p.dM), s = lerp(p.s0, p.sM), h = lerp(p.h0, p.hM);
+  const W = finalHeading() * Math.PI / 180;
+  const down = { x: -Math.sin(W), y: -Math.cos(W) };      // vers l'aval du vent (d'où l'on arrive en finale)
+  const right = { x: Math.cos(W), y: -Math.sin(W) };      // droite du parachutiste face à la cible, face au vent
+  const sg = current.side === 'G' ? -1 : 1;
+  const v2 = { x: d * down.x + sg * s * right.x, y: d * down.y + sg * s * right.y };
+  return { v: v2, ll: Geo.fromLocal(current.target, v2), d, s, h, dist: Math.hypot(v2.x, v2.y) };
 }
-// Toutes les positions à faire tenir dans un cadrage (en lat/lng)
+function figure() {
+  if (!hasTarget() || !hasWind()) return null;
+  const p = current.params, half = Math.max(1, +p.sector || 30) / 2;
+  const cur = prepoAt(current.windSpeed);
+  const R = Math.max(20, cur.dist);
+  const W = finalHeading(), back = W + 180;
+  const arc = [];
+  for (let a = -half; a <= half + 0.01; a += half / 8) {
+    const r = (back + a) * Math.PI / 180;
+    arc.push(Geo.fromLocal(current.target, { x: R * Math.sin(r), y: R * Math.cos(r) }));
+  }
+  const vm = Math.max(1, Math.round(+p.vmax || 7));
+  const path = []; for (let v = 0; v <= vm; v++) path.push(Object.assign({ wind: v }, prepoAt(v)));
+  const zoneR = (+p.zoneFrac || 0) > 0 ? (+p.zoneFrac) * R * Math.tan(half * Math.PI / 180) : 0;
+  return { cur, R, arc, half, path, zoneR, W };
+}
+function repDist(r) { return current.target ? map.distance(LL(current.target), LL(r)) : 0; }
+// Toutes les positions à faire tenir dans un cadrage
 function figurePoints() {
   const pts = [];
-  if (current.gateA) pts.push(current.gateA);
-  if (current.gateB) pts.push(current.gateB);
-  configs().forEach(c => {
-    pts.push(c.legStart); if (showRec()) pts.push(c.rec, c.behind);
-    const r = c.geo.rSetup || 0;
-    for (let k = 0; k < 16; k++) { const a = k * Math.PI / 8; pts.push(Geo.fromLocal(c.setup, { x: r * Math.sin(a), y: r * Math.cos(a) })); } // tour du cercle (marche aussi carte tournée)
-    pts.push(c.setup);
-  });
+  if (current.target) pts.push(current.target);
+  const f = figure();
+  if (f) {
+    pts.push(...f.arc, f.cur.ll);
+    if (current.params.ticks !== false) { // cercle gradué autour de la cible, chiffres compris
+      const rr = Math.max(25, f.R * 0.45) * 1.3;
+      for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; pts.push(Geo.fromLocal(current.target, { x: rr * Math.sin(a), y: rr * Math.cos(a) })); }
+    }
+    if (current.show.path) f.path.forEach(q => pts.push(q.ll));
+  }
+  if (current.show.reperes) current.reperes.forEach(r => pts.push(r));
   return pts;
 }
 
@@ -141,11 +141,13 @@ function syncCompass() {
   $('btnNorth').classList.toggle('rotated', Math.abs(((b % 360) + 360) % 360) > 0.5);
 }
 let rotT = 0;
-map.on('rotate', () => { syncCompass(); rotateGateIcons(); current.bearing = map.getBearing(); clearTimeout(rotT); rotT = setTimeout(persist, 400); });
+map.on('rotate', () => { syncCompass(); current.bearing = map.getBearing(); clearTimeout(rotT); rotT = setTimeout(persist, 400); });
+
 
 const fig = L.layerGroup().addTo(map);
 const grads = L.layerGroup().addTo(map);
-let markerA = null, markerB = null, placing = null, posMarker = null; // placing : null | 'A' | 'B'
+let placing = null, posMarker = null; // placing : null | 'T' (cible) | 'R' (repère)
+let markerT = null; const repMarkers = {};
 
 function dotIcon(color, size, label, cls) {
   return L.divIcon({
@@ -160,80 +162,56 @@ let raf = 0;
 function redraw() { cancelAnimationFrame(raf); raf = requestAnimationFrame(draw); }
 let lightT = 0;
 function drawLight() { const n = performance.now(); if (n - lightT > 60) { lightT = n; draw(); } }
-
-function arrowAt(from, to, frac, size) {
-  // petite flèche (chevron) au point frac du segment from→to, en coordonnées locales de from
-  const v = Geo.toLocal(from, to), n = Math.hypot(v.x, v.y) || 1, u = { x: v.x / n, y: v.y / n }, w = { x: -u.y, y: u.x };
-  const m = { x: v.x * frac, y: v.y * frac };
-  const a = s => Geo.fromLocal(from, { x: m.x - u.x * size + s * w.x * size * 0.6, y: m.y - u.y * size + s * w.y * size * 0.6 });
-  return [LL(a(-1)), LL(Geo.fromLocal(from, m)), LL(a(1))];
-}
+const mPerPx = ll => 40075016.686 * Math.cos(ll.lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8);
 
 function draw() {
   fig.clearLayers(); grads.clearLayers();
-  updateLegend(); updateAxisInfo(); syncQuick();
-  if (!hasGates()) {
-    if (!placing && current.gateA) placing = current.single ? 'SD' : 'B'; // il manque la 2e porte, ou la direction de la porte unique
-    if (placing) placeBanner();
-    else setBanner('Pour commencer : ☰ → ＋ Nouvelle zone.');
-    syncPlaceBtn();
-    if (current.gateA) placeGateMarkers();
-    return;
+  updateInfo(); syncQuick(); syncPlaceBtn();
+  if (!hasTarget()) {
+    if (placing) placeBanner(); else setBanner('Pour commencer : ☰ → ＋ Nouvelle zone, puis place la cible.');
+    placeMarkers(); return;
   }
-  if (!placing) setBanner(null);
-  syncPlaceBtn();
-  const p = current.params;
-
-  // Couloir A–B + prolongements derrière chaque porte jusqu'au point de snap
-  if (current.single) { if (current.show !== 'none') L.polyline([LL(current.gateA), LL(current.gateB)], { color: GATE_COLOR, weight: 2, dashArray: '6 6', opacity: .9, interactive: false }).addTo(fig); }
-  else if (current.show !== 'none') L.polyline([LL(current.gateA), LL(current.gateB)], { color: AXIS_COLOR, weight: 3, opacity: .95, interactive: false }).addTo(fig);
-  configs().forEach(c => {
-    const col = c.colors;
-    if (showRec()) L.polyline([LL(c.behind), LL(c.gate)], { color: AXIS_COLOR, weight: 2, dashArray: '8 6', opacity: .9, interactive: false }).addTo(fig);
-    // Flèche du sens du poser depuis cette porte
-    const other = c.key === 'A' ? current.gateB : current.gateA;
-    const len = Math.min(25, corridorLength() * 0.3);
-    const tip = Geo.fromLocal(c.gate, { x: c.geo.f.x * len, y: c.geo.f.y * len });
-    L.polyline(arrowAt(c.gate, tip, 1, Math.max(len * 0.3, 4)), { color: GATE_COLOR, weight: 3, interactive: false }).addTo(fig);
-    void other;
-
-    // Étape de base (branche d'approche avant le setup)
-    if ((+p.legLen || 0) > 0) {
-      L.polyline([LL(c.legStart), LL(c.setup)], { color: '#fff', weight: 6, opacity: .75, interactive: false }).addTo(fig);
-      L.polyline([LL(c.legStart), LL(c.setup)], { color: col.leg, weight: 3, interactive: false }).addTo(fig);
-      const chev = arrowAt(c.legStart, c.setup, 0.55, Math.min(10, (+p.legLen || 0) * 0.08 + 3));
-      L.polyline(chev, { color: '#fff', weight: 6, opacity: .75, interactive: false }).addTo(fig);
-      L.polyline(chev, { color: col.leg, weight: 3, interactive: false }).addTo(fig);
-      L.marker(LL(c.legStart), { icon: dotIcon(col.leg, 10, showLabels() ? `${legLine1(c)}<br><small>${legLine2(c)}</small>` : ''), interactive: false }).addTo(fig);
+  if (!placing) setBanner(hasWind() ? null : 'Règle le vent du jour : bouton 🌬 à gauche.');
+  const f = figure(), sh = current.show;
+  if (f) {
+    // Graduations en degrés autour de la cible (pour lire la direction du vent)
+    if (current.params.ticks !== false) degRing(current.target, Math.max(25, f.R * 0.45), '#ffffff');
+    // Secteur de finale : sommet sur la cible, ouvert côté sous le vent, jusqu'à la prépo affichée
+    if (sh.sector) {
+      L.polygon([LL(current.target), ...f.arc.map(LL)], { color: C_SECTOR, weight: 2, fillColor: C_SECTOR, fillOpacity: .16, interactive: false }).addTo(fig);
     }
-    if (showRec()) L.polyline([LL(c.setup), LL(c.rec)], { color: '#fff', weight: 1, opacity: .45, dashArray: '2 6', interactive: false }).addTo(fig);
-
-    drawWindCircle(c.setup, c.geo.rSetup, col.setup);
-    if (showRec()) drawWindCircle(c.rec, c.geo.rRec, col.rec);
-    L.marker(LL(c.setup), { icon: dotIcon(col.setup, 14, showLabels() ? `Setup ${cfgName(c)}` : ''), interactive: false }).addTo(fig);
-    if (showRec()) L.marker(LL(c.rec), { icon: dotIcon(col.rec, 11, showLabels() ? `Snap ${cfgName(c)}` : ''), interactive: false }).addTo(fig);
-  });
-  placeGateMarkers();
-}
-
-function legLine1(c) { const p = current.params; return `Base ${cfgName(c)} · ${p.legLen} m` + (+p.legTime ? ` · ${p.legTime} s` : ''); }
-function legLine2(c) { const p = current.params; return `cap ${Math.round(c.geo.legHeading)}°` + (+p.legHeight ? ` · début à ${p.legHeight} m` : ''); }
-
-function drawWindCircle(center, radius, color) {
-  if (!(radius > 0)) return;
-  const p = current.params;
-  L.circle(LL(center), { radius, color, weight: 2.5, fill: true, fillOpacity: .06, interactive: false }).addTo(fig);
-  if (p.rings) {
-    const v = +p.vref || 5;
-    for (let k = 1; k < v; k++)
-      L.circle(LL(center), { radius: radius * k / v, color, weight: 1, opacity: .55, fill: false, dashArray: '3 5', interactive: false }).addTo(fig);
+    // Chemin des prépos de 0 au vent max, gradué tous les 1 m/s
+    if (sh.path && sh.prepo) {
+      const pl = f.path.map(q => LL(q.ll));
+      L.polyline(pl, { color: '#000', weight: 5, opacity: .45, interactive: false }).addTo(fig);
+      L.polyline(pl, { color: C_PATH, weight: 2.5, interactive: false }).addTo(fig);
+      const step = pathLabelStep(f);
+      f.path.forEach(q => {
+        L.circleMarker(LL(q.ll), { radius: 3, color: '#111', weight: 1, fillColor: C_PATH, fillOpacity: 1, interactive: false }).addTo(fig);
+        if (q.wind % step === 0 || q.wind === f.path.length - 1)
+          L.marker(LL(q.ll), { interactive: false, icon: L.divIcon({ className: 'plabel', iconSize: [0, 0], html: `<span>${q.wind}</span>` }) }).addTo(grads);
+      });
+    }
+    // Prépo du vent saisi (point, ou zone si réglée) + sa hauteur
+    if (sh.prepo) {
+      if (f.zoneR > 0) L.circle(LL(f.cur.ll), { radius: f.zoneR, color: C_PREPO, weight: 2, fillOpacity: .12, dashArray: '5 5', interactive: false }).addTo(fig);
+      L.marker(LL(f.cur.ll), { interactive: false, zIndexOffset: 500, icon: dotIcon(C_PREPO, 16, `${Math.round(f.cur.h)} m`, 'big') }).addTo(fig);
+    }
   }
-  if (p.ticks === false) return; // version épurée
-  const mpp = 40075016.686 * Math.cos(center.lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8);
+  placeMarkers();
+}
+function pathLabelStep(f) { // chiffres du chemin : pas plus serrés que ~26 px
+  const a = map.latLngToContainerPoint(LL(f.path[0].ll)), b = map.latLngToContainerPoint(LL(f.path[f.path.length - 1].ll));
+  const per = Math.hypot(b.x - a.x, b.y - a.y) / Math.max(1, f.path.length - 1);
+  return per >= 26 ? 1 : per >= 13 ? 2 : per >= 7 ? 5 : 100;
+}
+function degRing(center, radius, color) {
+  const mpp = mPerPx(center);
+  L.circle(LL(center), { radius, color, weight: 1.5, opacity: .8, fill: false, dashArray: '4 6', interactive: false }).addTo(grads);
   const degs = Geo.degTicks(radius / mpp);
   const pt = (deg, d) => { const a = deg * Math.PI / 180; return LL(Geo.fromLocal(center, { x: d * Math.sin(a), y: d * Math.cos(a) })); };
   const segs = [];
-  degs.forEach(deg => { // un trait + le chiffre à l'extérieur du cercle (les degrés restent affichés même sans les autres textes)
+  degs.forEach(deg => {
     segs.push([pt(deg, radius), pt(deg, radius - 10 * mpp)]);
     L.marker(pt(deg, radius + 15 * mpp), { interactive: false,
       icon: L.divIcon({ className: 'glabel', html: `<span style="color:${color}">${deg}°</span>`, iconSize: [0, 0] }) }).addTo(grads);
@@ -289,128 +267,53 @@ function longPressDrag(marker, onMove, onEnd, onStart) {
   };
   el.addEventListener('touchstart', down, { passive: true }); el.addEventListener('mousedown', down);
 }
-// Icône des portes : petit segment perpendiculaire à l'axe de poser, avec un drapeau debout à chaque bout
-// (drapeaux toujours droits à l'écran, le segment suit l'orientation de l'axe et de la carte).
-function gateSvg(theta) { // theta : angle à l'écran du sens du poser (0 = haut, sens horaire)
-  const t = theta * Math.PI / 180, px = Math.cos(t), py = Math.sin(t), W2 = 15;
-  const ends = [-1, 1].map(sd => [sd * px * W2, sd * py * W2]);
-  const flag = ([x, y]) => `<line x1="${x}" y1="${y}" x2="${x}" y2="${y - 18}" stroke="#111" stroke-width="2"/>
-    <polygon points="${x},${y - 18} ${x + 11},${y - 14} ${x},${y - 10}" fill="${GATE_COLOR}" stroke="#111" stroke-width="1.2"/>`;
-  return `<line x1="${ends[0][0]}" y1="${ends[0][1]}" x2="${ends[1][0]}" y2="${ends[1][1]}" stroke="#000" stroke-width="6" stroke-linecap="round" opacity=".5"/>
-    <line x1="${ends[0][0]}" y1="${ends[0][1]}" x2="${ends[1][0]}" y2="${ends[1][1]}" stroke="${GATE_COLOR}" stroke-width="3.5" stroke-linecap="round"/>
-    ${ends.map(flag).join('')}
-    ${ends.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="2.5" fill="#fff" stroke="#111"/>`).join('')}`;
+
+// ---------- Cible et repères : appui long pour déplacer, appui court sur un repère = nom / suppression ----------
+const targetIcon = L.divIcon({ className: 'target', iconSize: [34, 34], iconAnchor: [17, 17], html: '<span></span>' });
+function repIcon(r) {
+  const d = Math.round(repDist(r));
+  return L.divIcon({ className: 'rep', iconSize: [26, 26], iconAnchor: [13, 13],
+    html: `<span></span><b>${r.name ? esc(r.name) + ' · ' : ''}${d} m</b>` });
 }
-function gateIcon(label) {
-  return L.divIcon({ className: 'gate', iconSize: [34, 34], iconAnchor: [17, 17],
-    html: `<svg class="gsvg" width="60" height="60" viewBox="-30 -30 60 60"></svg>${label ? `<b style="color:${GATE_COLOR}">${label}</b>` : ''}` });
-}
-function rotateGateIcons() {
-  const b = map.getBearing ? map.getBearing() : 0;
-  [['A', markerA], ['B', markerB]].forEach(([k, m]) => {
-    const el = m && m.getElement && m.getElement(); if (!el) return;
-    const asvg = el.querySelector('.asvg');
-    if (asvg) { // flèche de cap (porte unique)
-      asvg.innerHTML = `<g transform="rotate(${(hasGates() ? axisHeading() : 0) + b})"><circle r="17" fill="rgba(0,0,0,.45)" stroke="#fff" stroke-width="2"/><path d="M0,-12 L9,6 L0,1 L-9,6 Z" fill="${GATE_COLOR}" stroke="#000" stroke-width="1"/></g>`;
-      return;
-    }
-    const svg = el.querySelector('.gsvg'); if (!svg) return;
-    svg.innerHTML = gateSvg((hasGates() ? headingOf(k) : 0) + b);
+function placeMarkers() {
+  if (current.target) {
+    if (!markerT) {
+      markerT = L.marker(LL(current.target), { icon: targetIcon, zIndexOffset: 1000 }).addTo(map);
+      longPressDrag(markerT, ll => { current.target = ll; drawLight(); }, () => { persist(); redraw(); });
+    } else if (!isDragging(markerT)) markerT.setLatLng(LL(current.target));
+  } else if (markerT) { map.removeLayer(markerT); markerT = null; }
+  const shown = current.show.reperes ? current.reperes : [];
+  Object.keys(repMarkers).forEach(id => { if (!shown.find(r => r.id === id)) { map.removeLayer(repMarkers[id]); delete repMarkers[id]; } });
+  shown.forEach(r => {
+    let m = repMarkers[r.id];
+    if (!m) {
+      m = repMarkers[r.id] = L.marker(LL(r), { icon: repIcon(r), zIndexOffset: 900 }).addTo(map);
+      longPressDrag(m, ll => { const q = current.reperes.find(x => x.id === r.id); if (q) { q.lat = ll.lat; q.lng = ll.lng; m.setIcon(repIcon(q)); } },
+        () => { persist(); redraw(); });
+      m.on('click', () => { if (Date.now() < suppressClickUntil || placing || meas.active) return; editRepere(r.id); });
+    } else if (!isDragging(m)) { m.setLatLng(LL(r)); m.setIcon(repIcon(r)); }
   });
 }
-function gateLabel(key) { return showLabels() && hasGates() ? `Portes ${cardOf(headingOf(key))}` : ''; }
-// Glisser une porte ou le rond du milieu déplace TOUT le couloir : cap et longueur conservés.
-// (Pour changer une seule porte : boutons « Porte 1 / Porte 2 » de l'onglet Portes.)
-let corrVec = null, markerMid = null;
-function corridorDrag(m, where) { // where : 'A', 'B' ou 'M' (milieu)
-  longPressDrag(m, ll => {
-    if (!corrVec) return;
-    const v = corrVec;
-    if (where === 'A') { current.gateA = ll; current.gateB = Geo.fromLocal(ll, v); }
-    else if (where === 'B') { current.gateB = ll; current.gateA = Geo.fromLocal(ll, { x: -v.x, y: -v.y }); }
-    else { current.gateA = Geo.fromLocal(ll, { x: -v.x / 2, y: -v.y / 2 }); current.gateB = Geo.fromLocal(ll, { x: v.x / 2, y: v.y / 2 }); }
-    drawLight();
-  }, () => { corrVec = null; persist(); redraw(); },
-  () => { corrVec = hasGates() ? Geo.toLocal(current.gateA, current.gateB) : null; });
+function resetMarkers() {
+  if (markerT) { map.removeLayer(markerT); markerT = null; }
+  Object.keys(repMarkers).forEach(id => { map.removeLayer(repMarkers[id]); delete repMarkers[id]; });
 }
-// Porte unique : la « 2e porte » n'existe pas ; B est la pointe d'une flèche de cap à SINGLE_LEN m devant la porte.
-const SINGLE_LEN = 60;
-function singleTip(a, headingDeg) { const r = headingDeg * Math.PI / 180; return Geo.fromLocal(a, { x: SINGLE_LEN * Math.sin(r), y: SINGLE_LEN * Math.cos(r) }); }
-function arrowIcon() {
-  return L.divIcon({ className: 'sarrow', iconSize: [44, 44], iconAnchor: [22, 22],
-    html: `<svg class="asvg" width="44" height="44" viewBox="-22 -22 44 44"></svg>` });
+async function editRepere(id) {
+  const r = current.reperes.find(x => x.id === id); if (!r) return;
+  const res = await ask(`Repère à ${Math.round(repDist(r))} m de la cible. Nom (facultatif) :`, r.name || '', 'Supprimer');
+  if (res === 'DELETE') { current.reperes = current.reperes.filter(x => x.id !== id); persist(); redraw(); toast('Repère supprimé'); return; }
+  if (res === null) return;
+  r.name = res; if (repMarkers[id]) repMarkers[id].setIcon(repIcon(r)); persist();
 }
-function makeArrowMarker() {
-  const m = L.marker(LL(current.gateB), { draggable: false, icon: arrowIcon(), zIndexOffset: 1000 }).addTo(map);
-  longPressDrag(m, ll => { // tourner le cap autour de la porte
-    const v = Geo.toLocal(current.gateA, ll); if (Math.hypot(v.x, v.y) < 3) return;
-    current.gateB = singleTip(current.gateA, Geo.bearingOf(v)); drawLight();
-  }, () => { persist(); redraw(); });
-  return m;
+function addRepere(p) {
+  current.reperes.push({ id: 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), lat: p.lat, lng: p.lng, name: '' });
+  current.show.reperes = true; persist(); redraw();
+  toast(`Repère placé à ${Math.round(repDist(p))} m de la cible. Touche-le pour le nommer ou le supprimer.`);
 }
-// Appui long sur une porte : on ne déplace QUE cette porte (le cap et la longueur du couloir suivent).
-// En porte unique, la porte emmène sa flèche de cap avec elle.
-function makeGateMarker(key) {
-  if (key === 'B' && current.single) return makeArrowMarker();
-  const m = L.marker(LL(current['gate' + key]), { draggable: false, icon: gateIcon(gateLabel(key)), zIndexOffset: 1000 }).addTo(map);
-  m._psvLabel = gateLabel(key);
-  let vec = null;
-  longPressDrag(m, ll => {
-    if (current.single && vec) { current.gateA = ll; current.gateB = Geo.fromLocal(ll, vec); }
-    else current['gate' + key] = ll;
-    drawLight();
-  }, () => { vec = null; persist(); redraw(); },
-  () => { vec = current.single && hasGates() ? Geo.toLocal(current.gateA, current.gateB) : null; });
-  return m;
-}
-// Appui long sur le trait blanc du couloir : on déplace tout le couloir (portes comprises), cap et longueur conservés.
-let corrHit = null;
-function corridorHit() {
-  if (corrHit) return corrHit;
-  const line = L.polyline([[0, 0], [0, 0]], { color: '#fff', weight: 30, opacity: 0, interactive: true, bubblingMouseEvents: true });
-  const handle = { line, _lpDragging: false, getElement: () => line._path, setLatLng: () => {} };
-  let ref = null, a0 = null, b0 = null;
-  corrHit = { line, handle, attached: false };
-  corrHit.attach = () => {
-    if (corrHit.attached || !line._path) return; corrHit.attached = true;
-    longPressDrag(handle, ll => {
-      if (!ref) { ref = ll; a0 = current.gateA; b0 = current.gateB; return; }
-      const d = Geo.toLocal(ref, ll);
-      current.gateA = Geo.fromLocal(a0, d); current.gateB = Geo.fromLocal(b0, d); drawLight();
-    }, () => { ref = null; persist(); redraw(); }, () => { ref = null; });
-  };
-  return corrHit;
-}
-function syncCorridorHit() {
-  const h = corridorHit();
-  if (hasGates() && !current.single) {
-    if (!handleDragging()) h.line.setLatLngs([LL(current.gateA), LL(current.gateB)]);
-    if (!map.hasLayer(h.line)) h.line.addTo(map);
-    h.attach();
-  } else if (map.hasLayer(h.line)) map.removeLayer(h.line);
-}
-const handleDragging = () => !!(corrHit && corrHit.handle._lpDragging);
-const midIcon = L.divIcon({ className: 'corrmid', iconSize: [38, 38], iconAnchor: [19, 19], html: '<span></span>' });
-function corridorMid() { return { lat: (current.gateA.lat + current.gateB.lat) / 2, lng: (current.gateA.lng + current.gateB.lng) / 2 }; }
-function syncGate(m, key) {
-  if (isDragging(m)) return; // le point tenu au doigt est placé par le glissement lui-même
-  m.setLatLng(LL(current['gate' + key]));
-  if (key === 'B' && current.single) return;
-  const lab = gateLabel(key);
-  if (m._psvLabel !== lab) { m.setIcon(gateIcon(lab)); m._psvLabel = lab; }
-}
-function placeGateMarkers() {
-  if (current.gateA) { if (!markerA) markerA = makeGateMarker('A'); else syncGate(markerA, 'A'); }
-  const hideTip = current.single && current.show === 'none';
-  if (hideTip && markerB) { map.removeLayer(markerB); markerB = null; }
-  if (current.gateB && !hideTip) { if (!markerB) markerB = makeGateMarker('B'); else syncGate(markerB, 'B'); }
-  syncCorridorHit();
-  rotateGateIcons();
-}
-function resetGateMarkers() {
-  [markerA, markerB, markerMid].forEach(m => m && map.removeLayer(m));
-  markerA = markerB = markerMid = null;
-  if (corrHit && map.hasLayer(corrHit.line)) map.removeLayer(corrHit.line);
+function setTarget(p) {
+  current.target = p; persist(); redraw();
+  if (!hasWind()) { openWind(); toast('Cible placée. Règle maintenant le vent du jour.'); }
+  else { fitFigure(); toast('Cible placée. Appui long dessus pour la déplacer.'); }
 }
 
 // Cadre la figure dans la partie libre de l'écran (hors barre du haut, boutons de gauche, zoom),
@@ -438,27 +341,12 @@ function fitFigure() {
   }
 }
 
-function updateLegend() {
-  const p = current.params, t = (+p.t1 || 0) + (+p.t2 || 0), r0 = Math.round;
-  let h = '';
-  configs().forEach(c => {
-    h += `<div><i style="background:${c.colors.setup}"></i>${cfgName(c)} : poser au ${hdg(c.heading)}, virage à ${c.turn === 'G' ? 'gauche' : 'droite'}</div>`;
-  });
-  h += `<div class="mut">Cercles 5 m/s : setup ${r0((+p.vref || 0) * t)} m · snap ${r0((+p.vref || 0) * (+p.t2 || 0))} m</div>`;
-  h += `<div class="mut">1 m/s = ${r0(t)} m (setup) · ${r0(+p.t2 || 0)} m (snap)</div>`;
-  $('legend').innerHTML = h;
-  $('legend').classList.toggle('hidden', !showLabels());
-}
-function updateAxisInfo() {
-  $('axisInfo').textContent = !hasGates() ? 'Portes pas encore placées.'
-    : current.single ? `Porte unique · axe de poser ${hdg(axisHeading())} (${cardOf(axisHeading())}). Pour changer le cap : appui long sur la flèche et tourne, ou saisis-le ci-dessous.`
-    : `Axes de poser : ${hdg(axisHeading())} et ${hdg((axisHeading() + 180) % 360)} · couloir ${Math.round(corridorLength())} m`;
-  $('lenRow').classList.toggle('hidden', !!current.single);
-  $('capLabel').textContent = current.single ? 'Cap du poser (°)' : 'Cap 1re → 2e porte (°)';
-  if (hasGates()) {
-    if (document.activeElement !== $('c_heading')) $('c_heading').value = Math.round(axisHeading()) % 360;
-    if (document.activeElement !== $('c_len')) $('c_len').value = Math.round(corridorLength());
-  }
+
+function updateInfo() {
+  const f = figure();
+  $('axisInfo').textContent = !hasTarget() ? 'Cible pas encore placée.'
+    : !hasWind() ? 'Vent du jour pas encore réglé (bouton 🌬 sur la carte).'
+    : `Vent du ${hdg(current.windDir)} (${cardOf(current.windDir)}) · ${fmt1(current.windSpeed)} m/s · finale au ${hdg(finalHeading())} · prépo ${current.side === 'D' ? 'à droite' : 'à gauche'} : ${Math.round(f.cur.d)} m en profondeur, ${Math.round(f.cur.s)} m de déport, ${Math.round(f.cur.h)} m de hauteur`;
 }
 
 // ---------- Interface ----------
@@ -468,102 +356,86 @@ function $(id) { return document.getElementById(id) || document.createElement('d
 function setBanner(t) { const b = $('banner'); if (!t) b.classList.add('hidden'); else { b.textContent = t; b.classList.remove('hidden'); } }
 let toastT;
 function toast(t) { const el = $('toast'); el.textContent = t; el.classList.remove('hidden'); clearTimeout(toastT); toastT = setTimeout(() => el.classList.add('hidden'), 2800); }
-
-const numFields = ['t1', 't2', 'setupBack', 'setupSide', 'recBack', 'vref', 'legTime', 'legSpeed', 'legHeight', 'setupHeight'];
-const MEMO_FIELDS = ['legHeight', 'setupHeight']; // aide-mémoire : peuvent rester vides
+const numFields = PROFILE_KEYS;
 function fillInputs(only) {
   const p = current.params;
-  (only || numFields).forEach(k => { const el = $('p_' + k); if (el && document.activeElement !== el) el.value = p[k] == null ? '' : p[k]; });
-  $('legInfo').textContent = `Longueur tracée : ${legLenOf(p)} m (${p.legTime} s × ${p.legSpeed} m/s)`;
+  (only || numFields).forEach(k => { const el = $('p_' + k); if (el && document.activeElement !== el) el.value = p[k] == null ? '' : String(p[k]).replace('.', ','); });
   if (only) return;
-  syncQuick();
+  syncQuick(); syncWind();
   $('zoneName').textContent = current.name + (current.id ? '' : ' (non enregistrée)');
 }
 numFields.forEach(k => {
   $('p_' + k).addEventListener('input', e => {
-    const raw = String(e.target.value).trim();
-    let v = parseFloat(raw.replace(',', '.'));
-    if (isNaN(v)) { if (raw === '' && MEMO_FIELDS.includes(k)) v = null; else return; }
-    current.params[k] = v;
-    if (k === 'legTime' || k === 'legSpeed') { current.params.legLen = legLenOf(current.params); profile.legLen = current.params.legLen; $('legInfo').textContent = `Longueur tracée : ${current.params.legLen} m (${current.params.legTime} s × ${current.params.legSpeed} m/s)`; }
-    if (PROFILE_KEYS.includes(k)) { // réglage de manœuvre : toutes les zones suivent
-      profile[k] = v; store.set('pa.profile', profile);
-      zones.forEach(applyProfile); store.set('pa.zones', zones);
-    }
+    const v = parseFloat(String(e.target.value).trim().replace(',', '.'));
+    if (isNaN(v)) return;
+    current.params[k] = v; profile[k] = v; store.set('pa.profile', profile); // réglage de manœuvre : toutes les zones suivent
+    zones.forEach(applyProfile); store.set('pa.zones', zones);
     persist(); redraw();
   });
   $('p_' + k).addEventListener('blur', () => fillInputs([k]));
 });
+
 // ---------- Bascules rapides sur la carte ----------
 function syncQuick() {
-  const p = current.params, sh = current.show;
-  const h = k => hasGates() ? cardOf(headingOf(k)) : (k === 'A' ? 'P1' : 'P2');
-  const t = k => `${h(k)} ${current['turn' + k] === 'G' ? '↺ G' : '↻ D'}`;
-  $('qTurnA').textContent = t('A'); $('qTurnB').textContent = t('B');
-  $('qShowB').classList.toggle('hidden', !!current.single); $('qTurnB').classList.toggle('hidden', !!current.single);
-  $('qShowA').classList.toggle('on', current.single ? sh !== 'none' : (sh === 'AB' || sh === 'A')); $('qShowB').classList.toggle('on', sh === 'AB' || sh === 'B');
-  $('qShowA').textContent = '👁 ' + h('A'); $('qShowB').textContent = '👁 ' + h('B');
-  $('qRec').classList.toggle('on', showRec());
-  $('qTicks').classList.toggle('on', p.ticks !== false); $('qRings').classList.toggle('on', !!p.rings);
+  const sh = current.show;
+  $('qSide').textContent = current.side === 'D' ? 'Prépo D ▶' : '◀ Prépo G';
+  [['qSector', 'sector'], ['qPrepo', 'prepo'], ['qPath', 'path'], ['qReperes', 'reperes']].forEach(([id, k]) => $(id).classList.toggle('on', !!sh[k]));
+  $('qTicks').classList.toggle('on', current.params.ticks !== false);
+  $('qWind').innerHTML = hasWind() ? `🌬 ${hdg(current.windDir)}<br>${fmt1(current.windSpeed)} m/s` : '🌬 vent';
+  $('qWind').classList.toggle('warn', !hasWind());
 }
 function quick(fn, msg) { fn(); syncQuick(); persist(); redraw(); if (msg) toast(msg()); }
-$('qTurnA').addEventListener('click', () => quick(() => { current.turnA = current.turnA === 'G' ? 'D' : 'G'; }, () => `${cfgNameKey('A')} : virage à ${current.turnA === 'G' ? 'gauche' : 'droite'}`));
-$('qTurnB').addEventListener('click', () => quick(() => { current.turnB = current.turnB === 'G' ? 'D' : 'G'; }, () => `${cfgNameKey('B')} : virage à ${current.turnB === 'G' ? 'gauche' : 'droite'}`));
-function toggleShow(k) {
-  if (current.single) { // porte unique : l'œil masque tout sauf la porte (axe, étape de base, points, cercles)
-    quick(() => { current.show = current.show === 'none' ? 'AB' : 'none'; }, () => current.show === 'none' ? 'Configuration masquée' : 'Configuration affichée');
-    return;
-  }
-  const sh = current.show || 'AB';
-  const vis = { A: sh === 'AB' || sh === 'A', B: sh === 'AB' || sh === 'B' };
-  vis[k] = !vis[k];
-  // les deux yeux fermés : on ne garde que les portes (couloir, étapes de base, points et cercles masqués)
-  quick(() => { current.show = vis.A && vis.B ? 'AB' : vis.A ? 'A' : vis.B ? 'B' : 'none'; });
-}
-$('qShowA').addEventListener('click', () => toggleShow('A'));
-$('qShowB').addEventListener('click', () => toggleShow('B'));
+$('qSide').addEventListener('click', () => quick(() => { current.side = current.side === 'D' ? 'G' : 'D'; }, () => `Prépo à ${current.side === 'D' ? 'droite' : 'gauche'} (face à la cible, face au vent)`));
+const SHOW_NAMES = { sector: 'Secteur de finale', prepo: 'Prépo', path: 'Chemin des prépos 0 → vent max', reperes: 'Repères' };
+[['qSector', 'sector'], ['qPrepo', 'prepo'], ['qPath', 'path'], ['qReperes', 'reperes']].forEach(([id, k]) =>
+  $(id).addEventListener('click', () => quick(() => { current.show[k] = !current.show[k]; }, () => `${SHOW_NAMES[k]} ${current.show[k] ? 'affiché' : 'masqué'}`)));
 $('qTicks').addEventListener('click', () => quick(() => { current.params.ticks = current.params.ticks === false; }, () => current.params.ticks ? 'Graduations affichées' : 'Graduations masquées'));
-$('qRec').addEventListener('click', () => quick(() => { current.params.rec = !showRec(); }, () => showRec() ? 'Point de snap affiché' : 'Point de snap masqué'));
-$('qRings').addEventListener('click', () => quick(() => { current.params.rings = !current.params.rings; }, () => current.params.rings ? 'Anneaux 1 m/s affichés' : 'Anneaux 1 m/s masqués'));
-// Couloir : la 1re porte reste fixe, on place la 2e au cap et à la distance voulus
-function setCorridor(headingDeg, lengthM) {
-  if (!hasGates()) return toast('Place d\'abord les deux portes');
-  const h = ((headingDeg % 360) + 360) % 360 * Math.PI / 180, d = Math.max(1, lengthM);
-  current.gateB = current.single ? singleTip(current.gateA, h * 180 / Math.PI) : Geo.fromLocal(current.gateA, { x: d * Math.sin(h), y: d * Math.cos(h) });
-  persist(); redraw();
+
+// ---------- Vent du jour : direction (d'où il vient) et force, réglables sur la carte ----------
+function syncWind() {
+  if (document.activeElement !== $('w_dir')) $('w_dir').value = hasWind() ? Math.round(current.windDir) : '';
+  if (document.activeElement !== $('w_spd')) $('w_spd').value = fmt1(current.windSpeed || 0);
+  $('windInfo').textContent = hasWind() ? `Finale au ${hdg(finalHeading())} (${cardOf(finalHeading())}), face au vent` : 'Indique d\'où vient le vent (en degrés).';
 }
-document.querySelectorAll('[data-rot]').forEach(b => b.addEventListener('click', () => {
-  if (hasGates()) setCorridor(Math.round(axisHeading()) + +b.dataset.rot, corridorLength());
-}));
-document.querySelectorAll('[data-len]').forEach(b => b.addEventListener('click', () => {
-  if (hasGates()) setCorridor(axisHeading(), Math.round(corridorLength()) + +b.dataset.len);
-}));
+function openWind() { $('windBox').classList.remove('hidden'); syncWind(); }
+function setWind(dir, spd) {
+  if (dir !== undefined && !isNaN(dir)) current.windDir = ((Math.round(dir) % 360) + 360) % 360;
+  if (spd !== undefined && !isNaN(spd)) current.windSpeed = Math.max(0, Math.round(spd * 10) / 10);
+  persist(); syncWind(); redraw();
+}
+$('qWind').addEventListener('click', () => $('windBox').classList.contains('hidden') ? openWind() : $('windBox').classList.add('hidden'));
+$('windOk').addEventListener('click', () => { $('windBox').classList.add('hidden'); if (hasTarget() && hasWind()) fitFigure(); });
+document.querySelectorAll('[data-wdir]').forEach(b => b.addEventListener('click', () => setWind((hasWind() ? current.windDir : 0) + +b.dataset.wdir)));
+document.querySelectorAll('[data-wspd]').forEach(b => b.addEventListener('click', () => setWind(undefined, (current.windSpeed || 0) + +b.dataset.wspd)));
 const numIn = el => parseFloat(String(el.value).replace(',', '.'));
-$('c_heading').addEventListener('change', e => { const v = numIn(e.target); if (!isNaN(v) && hasGates()) setCorridor(v, corridorLength()); });
-$('c_len').addEventListener('change', e => { const v = numIn(e.target); if (!isNaN(v) && v > 0 && hasGates()) setCorridor(axisHeading(), v); });
-['c_heading', 'c_len'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') e.target.blur(); }));
+$('w_dir').addEventListener('change', e => setWind(numIn(e.target)));
+$('w_spd').addEventListener('change', e => setWind(undefined, numIn(e.target)));
+['w_dir', 'w_spd'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') e.target.blur(); }));
 
-
+// ---------- Placement : cible et repères, en touchant la carte ou à ma position GPS ----------
 function syncPlaceBtn() {
-  const two = !current.single;
-  $('btnPlaceA').classList.toggle('on', placing === 'A' || (two && hasGates() && !placing));
-  $('btnPlaceB').classList.toggle('on', placing === 'B' || (two && hasGates() && !placing));
-  $('btnPlaceS').classList.toggle('on', placing === 'S' || placing === 'SD' || (!two && hasGates() && !placing));
-  const lab = k => two && hasGates() ? `📍 Porte ${k === 'A' ? 1 : 2} (${cardOf(headingOf(k))})` : `📍 Porte ${k === 'A' ? 1 : 2}`;
-  $('btnPlaceA').textContent = lab('A'); $('btnPlaceB').textContent = lab('B');
-  $('btnPlaceS').textContent = !two && hasGates() ? `📍 Porte unique (${cardOf(axisHeading())})` : '📍 Porte unique';
-  $('placeHint').textContent = two
-    ? 'Touche un bouton puis la carte pour (re)placer cette porte. Appui long sur une porte pour déplacer cette porte seule ; appui long sur le trait blanc entre les portes pour déplacer tout le couloir (cap et longueur conservés).'
-    : 'Porte unique : un seul axe de poser. Appui long sur la porte pour la déplacer, sur la flèche pour tourner le cap. « Porte 1 » ou « Porte 2 » repasse en couloir à deux portes.';
+  $('btnPlaceT').classList.toggle('on', placing === 'T');
+  $('btnPlaceR').classList.toggle('on', placing === 'R');
 }
-function placeBanner() { setBanner(!placing ? null : placing === 'S' ? 'Touche la carte pour placer la porte unique.' : placing === 'SD' ? 'Touche la carte dans la direction du poser (n\'importe quelle distance).' : `Touche la carte pour placer la porte ${placing === 'A' ? 1 : 2}.`); }
-['A', 'B', 'S'].forEach(k => $('btnPlace' + k).addEventListener('click', () => {
+function placeBanner() { setBanner(!placing ? null : placing === 'T' ? 'Touche la carte pour placer la cible.' : 'Touche la carte pour placer le repère.'); }
+['T', 'R'].forEach(k => $('btnPlace' + k).addEventListener('click', () => {
   if (placing === k) { placing = null; placeBanner(); syncPlaceBtn(); return; } // 2e appui : annule
-  if (k !== 'S' && current.single) { // retour au couloir à deux portes : la flèche de cap disparaît
-    current.single = false; current.gateB = null; current.show = 'AB'; resetGateMarkers(); persist(); redraw();
-  }
+  if (k === 'R' && !hasTarget()) return toast('Place d\'abord la cible');
   stopMeasure(); placing = k; syncPlaceBtn(); placeBanner(); closeSheet();
 }));
+function gpsHere(btn, then) {
+  if (!navigator.geolocation) return toast('Géolocalisation indisponible');
+  const old = btn.textContent; btn.textContent = '📡 Position…'; btn.disabled = true;
+  navigator.geolocation.getCurrentPosition(pos => {
+    btn.textContent = old; btn.disabled = false;
+    const acc = Math.round(pos.coords.accuracy || 0);
+    then({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+    if (acc) setTimeout(() => toast(`Position prise (précision GPS ± ${acc} m)`), 2900);
+  }, () => { btn.textContent = old; btn.disabled = false; toast('Position refusée ou indisponible'); }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+}
+$('btnGpsT').addEventListener('click', () => gpsHere($('btnGpsT'), p => { closeSheet(); map.setView(LL(p), Math.max(map.getZoom(), 17)); setTarget(p); }));
+$('btnGpsR').addEventListener('click', () => { if (!hasTarget()) return toast('Place d\'abord la cible'); gpsHere($('btnGpsR'), p => { closeSheet(); addRepere(p); }); });
+
 // ---------- Mesure : cap et distance entre deux points touchés (dans l'ordre) ----------
 const measLayer = L.layerGroup().addTo(map);
 const meas = { active: false, a: null, b: null, ma: null, mb: null, line: null, halo: null, lbl: null };
@@ -580,7 +452,7 @@ function stopMeasure() {
 }
 $('qMeasure').addEventListener('click', () => {
   if (meas.active) { stopMeasure(); return; }
-  if (placing) return toast('Termine d\'abord le placement des portes');
+  if (placing) return toast('Termine d\'abord le placement en cours');
   meas.active = true; $('qMeasure').classList.add('on');
   measBox('Mesure : touche le <b>1er point</b>');
 });
@@ -610,31 +482,16 @@ function measureClick(p) {
   if (!meas.b) { meas.b = p; meas.mb = measMarker('b'); updateMeasure(); }
   // une fois les deux points posés, on les déplace au doigt ; un appui sur la carte ne fait rien
 }
+
 map.on('click', e => {
   if (Date.now() < suppressClickUntil) return; // fin d'un déplacement de point : pas un appui
   if (!placing && meas.active) { measureClick({ lat: e.latlng.lat, lng: e.latlng.lng }); return; }
   if (!placing) return;
-  const p = { lat: e.latlng.lat, lng: e.latlng.lng };
-  if (placing === 'S') { // porte unique : on pose la porte puis on demande le cap
-    current.single = true; current.show = 'AB'; current.gateA = p; current.gateB = null;
-    placing = 'SD'; placeBanner(); resetGateMarkers(); syncPlaceBtn(); persist(); redraw();
-    return;
-  }
-  if (placing === 'SD') { // 2e appui : la direction porte → point touché donne l'axe de poser (distance indifférente)
-    const v = Geo.toLocal(current.gateA, p);
-    if (Math.hypot(v.x, v.y) < 1) return;
-    current.gateB = singleTip(current.gateA, Geo.bearingOf(v));
-    placing = null; placeBanner(); resetGateMarkers(); syncPlaceBtn(); persist(); redraw(); fitFigure();
-    toast(`Axe de poser ${hdg(axisHeading())} (${cardOf(axisHeading())}). Appui long sur la flèche pour l'ajuster.`);
-    return;
-  }
-  current['gate' + placing] = p;
-  const other = placing === 'A' ? 'B' : 'A';
-  placing = current['gate' + other] ? null : other; // l'autre porte manque encore : on enchaîne
-  placeBanner();
-  if (!placing) toast('Couloir placé. Appui long : sur une porte pour la déplacer, sur le trait blanc pour déplacer le couloir.');
-  syncPlaceBtn(); persist(); redraw();
+  const p = { lat: e.latlng.lat, lng: e.latlng.lng }, k = placing;
+  placing = null; placeBanner(); syncPlaceBtn();
+  if (k === 'T') setTarget(p); else addRepere(p);
 });
+
 map.on('zoomend', redraw);
 (function delayTouchRotate() {
   const TG = map.touchGestures; if (!TG || !TG._onTouchStart) return;
@@ -704,14 +561,18 @@ $('btnZones').addEventListener('click', () => toggleTab('reglages'));
 $('btnClose').addEventListener('click', closeSheet);
 document.querySelectorAll('.tabs [data-tab]').forEach(b => b.addEventListener('click', () => openSheet(b.dataset.tab)));
 
-function ask(text, def) {
+
+// Petite fenêtre : texte, champ facultatif, et un 3e bouton facultatif (renvoie 'DELETE')
+function ask(text, def, delLabel) {
   return new Promise(res => {
     $('dlgText').textContent = text; $('dlgInput').value = def || ''; $('dialog').classList.remove('hidden');
     $('dlgInput').classList.toggle('hidden', def === undefined);
-    const done = v => { $('dialog').classList.add('hidden'); $('dlgOk').onclick = $('dlgCancel').onclick = null; res(v); };
+    $('dlgDel').classList.toggle('hidden', !delLabel); $('dlgDel').textContent = delLabel || '';
+    const done = v => { $('dialog').classList.add('hidden'); $('dlgOk').onclick = $('dlgCancel').onclick = $('dlgDel').onclick = null; res(v); };
     $('dlgOk').onclick = () => done(def === undefined ? true : $('dlgInput').value.trim());
     $('dlgCancel').onclick = () => done(null);
-    if (def !== undefined) setTimeout(() => $('dlgInput').focus(), 50);
+    $('dlgDel').onclick = () => done('DELETE');
+    if (def !== undefined && !delLabel) setTimeout(() => $('dlgInput').focus(), 50);
   });
 }
 
@@ -732,7 +593,7 @@ function renderZones() {
       const rm = document.createElement('button'); rm.className = 'zoffdel'; rm.textContent = '🗑'; rm.title = 'Supprimer les photos hors-ligne';
       rm.onclick = e => { e.stopPropagation(); removeOffline(z.id); };
       off.append(rm);
-    } else if (z.gateA && z.gateB) {
+    } else if (z.target) {
       const dl = document.createElement('button'); dl.className = 'zoffdel'; dl.textContent = '⬇︎ hors-ligne'; dl.title = 'Télécharger les photos pour le hors-ligne';
       dl.onclick = e => { e.stopPropagation(); downloadOffline(z.id); };
       off.append(dl);
@@ -747,7 +608,7 @@ function renderZones() {
       zones = zones.filter(x => x.id !== z.id); store.set('pa.zones', zones);
       if (current.id === z.id) { // la zone affichée disparaît : carte vide, au même endroit
         current = newZone(map.getCenter()); applyProfile(current); current.zoom = map.getZoom();
-        resetGateMarkers(); placing = null; persist(); fillInputs(); redraw();
+        resetMarkers(); placing = null; persist(); fillInputs(); redraw();
       }
       renderZones();
     };
@@ -789,22 +650,22 @@ function zoneReorder(li, handle) {
 function loadZone(id) {
   const z = zones.find(x => x.id === id); if (!z) return;
   current = upgrade(clone(z)); applyProfile(current);
-  resetGateMarkers(); placing = null; setBanner(null);
+  resetMarkers(); placing = null; setBanner(null); stopMeasure();
   map.setBearing(current.bearing || 0);
   map.setView([current.center.lat, current.center.lng], Math.max(current.zoom || 17, 15));
-  closeSheet(); fillInputs(); redraw(); if (hasGates()) fitFigure(); persist();
+  closeSheet(); fillInputs(); redraw(); if (hasTarget()) fitFigure(); persist();
 }
-// Nouvelle zone : on choisit d'abord où aller (ma position ou recherche), puis on place les portes
+// Nouvelle zone : on choisit d'abord où aller (rester ici, ma position ou recherche), puis on place la cible
 async function startNewZone(center, zoom) {
   $('nzDlg').classList.add('hidden');
   const n = await ask('Nom de la nouvelle zone (ex. Bouloc) :', ''); if (!n) return;
   current = newZone(center); applyProfile(current); current.zoom = zoom || 17;
   current.name = n; current.id = 'z' + Date.now(); current.updated = Date.now();
   zones.push(clone(current)); store.set('pa.zones', zones);
-  resetGateMarkers(); stopMeasure();
+  resetMarkers(); stopMeasure();
   map.setView([center.lat, center.lng], current.zoom);
-  placing = 'A'; fillInputs(); persist(); redraw(); closeSheet();
-  toast(`« ${n} » créée : place tes portes (onglet Zones pour une porte unique)`);
+  placing = 'T'; fillInputs(); persist(); redraw(); closeSheet();
+  toast(`« ${n} » créée : touche la carte pour placer la cible`);
 }
 $('btnNewZone').addEventListener('click', () => { $('searchResults').innerHTML = ''; $('nzDlg').classList.remove('hidden'); });
 $('nzCancel').addEventListener('click', () => $('nzDlg').classList.add('hidden'));
@@ -864,25 +725,20 @@ function locate(center) {
   }, () => { if (center) toast('Position refusée ou indisponible'); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 });
 }
 $('btnLocate').addEventListener('click', () => locate(true));
+
 // Boussole : nord en haut. Bouton « Axe » : branche d'approche vers le haut (sens de vol vers le setup) ;
 // si les deux branches ont des caps différents, chaque appui passe à l'autre.
 // leaflet-rotate : setBearing(b) tourne la carte de +b, donc le cap h est en haut avec b = -h.
 const normB = x => ((x % 360) + 360) % 360, diffB = (x, y) => Math.abs(((x - y + 540) % 360) - 180);
 function setMapBearing(b, msg) { map.setBearing(b); current.bearing = b; syncCompass(); persist(); if (msg) toast(msg); }
 $('btnNorth').addEventListener('click', () => setMapBearing(0, 'Nord en haut'));
+
+// Bouton « Axe » : axe de finale vers le haut (cap de finale = direction d'où vient le vent)
 $('btnAxisUp').addEventListener('click', () => {
-  const targets = [];
-  configs().forEach(c => {
-    const b = normB(-c.geo.legHeading), m = `Étape de base ${cfgName(c)} vers le haut`;
-    const same = targets.find(t => diffB(t.b, b) < 3);
-    if (same) same.msg += ' · ' + m; else targets.push({ b, msg: m });
-  });
-  if (!targets.length) return toast('Place d\'abord les portes');
-  const i = targets.findIndex(t => diffB(t.b, normB(map.getBearing())) < 2);
-  const next = targets[(i + 1) % targets.length]; // pas encore orienté (i = -1) → 1re branche
-  setMapBearing(next.b, next.msg);
+  if (!hasWind()) return toast('Règle d\'abord le vent du jour (🌬)');
+  setMapBearing(normB(-finalHeading()), `Axe de finale (${hdg(finalHeading())}) vers le haut`);
 });
-$('btnFit').addEventListener('click', () => { if (hasGates()) fitFigure(); else toast('Place d\'abord les portes'); });
+$('btnFit').addEventListener('click', () => { if (hasTarget()) fitFigure(); else toast('Place d\'abord la cible'); });
 
 // ---------- Images satellite (cache commun carte / hors-ligne / PDF) ----------
 const tileUrl = (z, x, y) => TILE_URL.replace('{z}', z).replace('{x}', x).replace('{y}', y);
@@ -909,9 +765,9 @@ function tilesAround(center, radiusM, zmin, zmax) {
   }
   return list;
 }
-// Photos gardées hors-ligne pour une zone : autour du milieu du couloir (700 m en détail, 2,5 km en large)
+// Photos gardées hors-ligne pour une zone : autour de la cible (700 m en détail, 2,5 km en large)
 function offlineTiles(z) {
-  const center = z.gateA && z.gateB ? { lat: (z.gateA.lat + z.gateB.lat) / 2, lng: (z.gateA.lng + z.gateB.lng) / 2 } : z.center;
+  const center = z.target || z.center;
   return [...new Set(tilesAround(center, 700, 12, 19).concat(tilesAround(center, 2500, 12, 16)))];
 }
 // Retirer le hors-ligne d'une zone : on efface ses photos, sauf celles qui servent à une autre zone gardée hors-ligne
@@ -935,7 +791,7 @@ const dlProgress = {}; // id de zone → « 120/1193 » pendant le téléchargem
 async function downloadOffline(id) {
   if (!('caches' in window)) { toast('Hors-ligne non pris en charge ici'); return; }
   if (dlProgress[id]) return;
-  const z = id === current.id ? current : zones.find(x => x.id === id); if (!z || !z.gateA || !z.gateB) return;
+  const z = id === current.id ? current : zones.find(x => x.id === id); if (!z || !z.target) return;
   const uniq = offlineTiles(z), total = uniq.length;
   if (!(await ask(`Télécharger les photos de « ${z.name} » pour le hors-ligne : ${total} images, environ ${Math.round(total * 25 / 1024)} Mo ?`))) return;
   let done = 0, fail = 0; dlProgress[id] = `0/${total}`; renderZones();
@@ -957,6 +813,7 @@ async function downloadOffline(id) {
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 }
 
+
 // ---------- Export PDF ----------
 let jsPdfLoading = null;
 function loadJsPdf() {
@@ -971,10 +828,9 @@ function safeName(s) { return s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace
 
 // Cap (°) placé en haut de la page : le sens de vol sur la branche d'approche, vers le setup
 // (on « monte » vers le setup puis l'axe de poser). 1re configuration affichée.
-function pdfUpBearing() {
-  const c = configs()[0];
-  return c ? c.geo.legHeading : 0;
-}
+
+// Le haut de la page = l'axe de finale (sens de vol face au vent, vers la cible)
+function pdfUpBearing() { return finalHeading(); }
 
 async function renderPdfCanvas() {
   const pts = figurePoints();
@@ -990,13 +846,16 @@ async function renderPdfCanvas() {
   const minX = Math.min(...R.map(p => p.x)), maxX = Math.max(...R.map(p => p.x));
   const minY = Math.min(...R.map(p => p.y)), maxY = Math.max(...R.map(p => p.y));
   const fw = maxX - minX, fh = maxY - minY;
-  const landscape = true; // toujours en paysage
-  const W = 3508, H = 2480; // A4 paysage à 300 dpi
-  const fs = 12, uu = W / 1000, lh = fs * 1.5 * uu; // police et interligne du bandeau
-  const band = Math.round((Math.max(5, 2.6 + configs().length) + 2.2) * lh); // bandeau d'informations en bas
-  const padX = 0.14, padY = 0.08; // marge latérale plus large pour les libellés
-  const availW = W * (1 - 2 * padX), availH = (H - band) * (1 - 2 * padY);
-  const s = Math.min(availW / Math.max(fw, 1), availH / Math.max(fh, 1)); // px page par px monde z19
+  // Portrait ou paysage : celui où la figure s'affiche le plus grand
+  const fit = (W, H) => {
+    const uu = W / 1000, lh = 12 * 1.5 * uu, band = Math.round(7.2 * lh);
+    const availW = W * (1 - 2 * 0.1), availH = (H - band) * (1 - 2 * 0.08);
+    return { W, H, band, s: Math.min(availW / Math.max(fw, 1), availH / Math.max(fh, 1)) };
+  };
+  const A = fit(3508, 2480), B = fit(2480, 3508);
+  const landscape = A.s >= B.s;
+  const { W, H, band, s } = landscape ? A : B;
+  const fs = 12, lh = fs * 1.5 * (W / 1000);
   const cxr = (minX + maxX) / 2, cyr = (minY + maxY) / 2, mapCY = (H - band) / 2;
   const toPage = r => ({ x: W / 2 + (r.x - cxr) * s, y: mapCY + (r.y - cyr) * s });
   const toC = ll => toPage(rot(CRS.latLngToPoint(L.latLng(ll.lat, ll.lng), Z0)));
@@ -1009,8 +868,7 @@ async function renderPdfCanvas() {
   // Images satellite : zoom assez fin pour la résolution, au plus 19
   let z = Z0;
   while (z > 1 && s * Math.pow(2, Z0 - z) < 1) z--;
-  const f = Math.pow(2, Z0 - z); // 1 px à z = f px à z19
-  // Emprise monde des 4 coins de la page (la page est tournée)
+  const f = Math.pow(2, Z0 - z);
   const corners = [[0, 0], [W, 0], [0, H], [W, H]].map(([X, Y]) => unrot({ x: (X - W / 2) / s + cxr, y: (Y - mapCY) / s + cyr }));
   const wx0 = Math.min(...corners.map(p => p.x)) / f, wx1 = Math.max(...corners.map(p => p.x)) / f;
   const wy0 = Math.min(...corners.map(p => p.y)) / f, wy1 = Math.max(...corners.map(p => p.y)) / f;
@@ -1034,117 +892,78 @@ async function renderPdfCanvas() {
   g.restore();
 
   // ---- Tracé ----
-  const u = W / 1000; // unité de taille relative à la page
+  const u = W / 1000;
   const pxPerM = ll => { const a = toC(ll), b = toC(Geo.fromLocal(ll, { x: 100, y: 0 })); return Math.hypot(b.x - a.x, b.y - a.y) / 100; };
-  const line = (a, b, color, w, dash) => { g.save(); g.strokeStyle = color; g.lineWidth = w * u; g.setLineDash(dash ? dash.map(d => d * u) : []); g.beginPath(); const A = toC(a), B = toC(b); g.moveTo(A.x, A.y); g.lineTo(B.x, B.y); g.stroke(); g.restore(); };
   const shadowText = (txt, x, y, color, size, align) => {
     g.save(); g.font = `700 ${size * u}px -apple-system, Helvetica, Arial, sans-serif`; g.textBaseline = 'middle';
     const w = g.measureText(txt).width, m = 12 * u;
-    if (!align) align = (x + w > W - m) ? 'right' : 'left'; // libellé à gauche du point s'il sortirait de la page
-    if (align === 'right' && x - w < m) x = m + w;          // recadrage horizontal dans la page
+    if (!align) align = (x + w > W - m) ? 'right' : 'left';
+    if (align === 'right' && x - w < m) x = m + w;
     if (align === 'left' && x + w > W - m) x = W - m - w;
     if (align === 'center') x = Math.min(Math.max(x, m + w / 2), W - m - w / 2);
-    y = Math.min(Math.max(y, 20 * u), H - band - 14 * u);   // jamais sous le bandeau
+    y = Math.min(Math.max(y, 20 * u), H - band - 14 * u);
     g.textAlign = align;
     g.lineWidth = size * u * 0.28; g.strokeStyle = isDark(color) ? 'rgba(255,255,255,.9)' : 'rgba(0,0,0,.85)'; g.lineJoin = 'round'; g.strokeText(txt, x, y); g.fillStyle = color; g.fillText(txt, x, y); g.restore();
   };
-  const dot = (ll, color, r, label) => {
+  const dot = (ll, color, r) => {
     const c = toC(ll); g.save(); g.beginPath(); g.arc(c.x, c.y, r * u, 0, 2 * Math.PI); g.fillStyle = color; g.fill();
-    g.lineWidth = 1.2 * u; g.strokeStyle = '#111'; g.stroke(); g.restore();
-    if (label && showLabels()) shadowText(label, c.x + (r + 4) * u, c.y, color, 13);
+    g.lineWidth = 1.2 * u; g.strokeStyle = '#111'; g.stroke(); g.restore(); return c;
   };
-  const chevron = (from, to, frac, color) => chevronW(from, to, frac, color, 3);
-  const chevronW = (from, to, frac, color, w) => {
-    const A = toC(from), B = toC(to), dx = B.x - A.x, dy = B.y - A.y, n = Math.hypot(dx, dy) || 1, ux = dx / n, uy = dy / n;
-    const mx = A.x + dx * frac, my = A.y + dy * frac, L0 = 12 * u;
-    g.save(); g.strokeStyle = color; g.lineWidth = w * u; g.beginPath();
-    g.moveTo(mx - ux * L0 - uy * L0 * 0.6, my - uy * L0 + ux * L0 * 0.6); g.lineTo(mx, my); g.lineTo(mx - ux * L0 + uy * L0 * 0.6, my - uy * L0 - ux * L0 * 0.6); g.stroke(); g.restore();
-  };
-  const chevronHalo = (from, to, frac) => { g.save(); g.globalAlpha = .85; chevronW(from, to, frac, '#ffffff', 6); g.restore(); };
-  // Portes : segment perpendiculaire à l'axe + un drapeau à chaque bout (comme sur la carte)
-  const gateMark = (key, label) => {
-    const gl = current['gate' + key], h = headingOf(key) * Math.PI / 180;
-    const P = toC(gl), Q = toC(Geo.fromLocal(gl, { x: 10 * Math.sin(h), y: 10 * Math.cos(h) }));
-    const dl = Math.hypot(Q.x - P.x, Q.y - P.y) || 1, dx = (Q.x - P.x) / dl, dy = (Q.y - P.y) / dl; // sens du poser sur la page
-    const px = -dy, py = dx, W2 = 15 * u;
-    g.save(); g.lineCap = 'round';
-    g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineWidth = 6 * u; g.beginPath(); g.moveTo(P.x - px * W2, P.y - py * W2); g.lineTo(P.x + px * W2, P.y + py * W2); g.stroke();
-    g.strokeStyle = GATE_COLOR; g.lineWidth = 3.5 * u; g.stroke();
-    [-1, 1].forEach(sd => {
-      const ex = P.x + sd * px * W2, ey = P.y + sd * py * W2; // drapeau debout (vers le haut de la page)
-      g.strokeStyle = '#111'; g.lineWidth = 2 * u; g.beginPath(); g.moveTo(ex, ey); g.lineTo(ex, ey - 18 * u); g.stroke();
-      g.fillStyle = GATE_COLOR; g.lineWidth = 1.2 * u; g.beginPath(); g.moveTo(ex, ey - 18 * u); g.lineTo(ex + 11 * u, ey - 14 * u); g.lineTo(ex, ey - 10 * u); g.closePath(); g.fill(); g.stroke();
-      g.fillStyle = '#fff'; g.beginPath(); g.arc(ex, ey, 2.5 * u, 0, 2 * Math.PI); g.fill(); g.stroke();
-    });
-    g.restore();
-    if (showLabels()) shadowText(label, P.x + 24 * u, P.y, GATE_COLOR, 13);
-  };
-  const circle = (center, radius, color) => {
-    if (!(radius > 0)) return;
-    const c = toC(center), R = radius * pxPerM(center), p = current.params;
-    g.save(); g.strokeStyle = color; g.lineWidth = 2.6 * u; g.fillStyle = color; g.globalAlpha = .08;
-    g.beginPath(); g.arc(c.x, c.y, R, 0, 2 * Math.PI); g.fill(); g.globalAlpha = 1; g.stroke();
-    if (p.rings) {
-      const v = +p.vref || 5; g.lineWidth = 1 * u; g.setLineDash([3 * u, 5 * u]); g.globalAlpha = .7;
-      for (let k = 1; k < v; k++) { g.beginPath(); g.arc(c.x, c.y, R * k / v, 0, 2 * Math.PI); g.stroke(); }
-      g.setLineDash([]); g.globalAlpha = 1;
-    }
-    if (p.ticks !== false) {
-      g.lineWidth = 1.6 * u;
-      Geo.degTicks(R / u, 40).forEach(deg => { // mêmes graduations que sur la carte, chiffres à l'extérieur
+  const fg = figure(), sh = current.show;
+  if (fg) {
+    if (current.params.ticks !== false) { // graduations autour de la cible
+      const c = toC(current.target), Rr = Math.max(25, fg.R * 0.45) * pxPerM(current.target);
+      g.save(); g.strokeStyle = '#fff'; g.globalAlpha = .8; g.lineWidth = 1.4 * u; g.setLineDash([4 * u, 6 * u]);
+      g.beginPath(); g.arc(c.x, c.y, Rr, 0, 2 * Math.PI); g.stroke(); g.setLineDash([]); g.globalAlpha = 1;
+      Geo.degTicks(Rr / u, 40).forEach(deg => {
         const a = pageAngle(deg), l = 11 * u;
-        g.beginPath(); g.moveTo(c.x + R * Math.sin(a), c.y - R * Math.cos(a)); g.lineTo(c.x + (R - l) * Math.sin(a), c.y - (R - l) * Math.cos(a)); g.stroke();
-        shadowText(`${deg}°`, c.x + (R + 16 * u) * Math.sin(a), c.y - (R + 16 * u) * Math.cos(a), color, 12, 'center');
+        g.beginPath(); g.moveTo(c.x + Rr * Math.sin(a), c.y - Rr * Math.cos(a)); g.lineTo(c.x + (Rr - l) * Math.sin(a), c.y - (Rr - l) * Math.cos(a)); g.stroke();
+        shadowText(`${deg}°`, c.x + (Rr + 16 * u) * Math.sin(a), c.y - (Rr + 16 * u) * Math.cos(a), '#fff', 11, 'center');
       });
+      g.restore();
     }
-    g.restore();
-  };
-
-  if (!current.single && current.show !== 'none') line(current.gateA, current.gateB, AXIS_COLOR, 3.2);
-  const cfs = configs();
-  cfs.forEach(c => {
-    const col = c.colors, p = current.params;
-    if (showRec()) line(c.behind, c.gate, AXIS_COLOR, 2, [9, 7]);
-    const len = Math.min(25, corridorLength() * 0.3);
-    chevron(c.gate, Geo.fromLocal(c.gate, { x: c.geo.f.x * len, y: c.geo.f.y * len }), 1, GATE_COLOR);
-    if ((+p.legLen || 0) > 0) {
-      line(c.legStart, c.setup, '#ffffff', 6); line(c.legStart, c.setup, col.leg, 3.2);
-      chevronHalo(c.legStart, c.setup, 0.55); chevron(c.legStart, c.setup, 0.55, col.leg);
-      const S = toC(c.legStart);
-      dot(c.legStart, col.leg, 6);
-      // Libellé de branche jamais posé sur la branche :
-      // branche plutôt verticale → libellé à côté du point ; plutôt horizontale → au-dessus, côté extérieur
-      const Sp = toC(c.setup), dx = S.x - Sp.x, dy = S.y - Sp.y, dn = Math.hypot(dx, dy) || 1;
-      if (!showLabels()) { /* textes masqués */ } else if (Math.abs(dx / dn) < 0.5) {
-        shadowText(legLine1(c), S.x + 12 * u, S.y - 9 * u, col.leg, 13);
-        shadowText(legLine2(c), S.x + 12 * u, S.y + 9 * u, col.leg, 11);
-      } else {
-        const al = dx > 0 ? 'left' : 'right';
-        shadowText(legLine1(c), S.x, S.y - 28 * u, col.leg, 13, al);
-        shadowText(legLine2(c), S.x, S.y - 12 * u, col.leg, 11, al);
+    if (sh.sector) {
+      g.save(); g.beginPath(); const T = toC(current.target); g.moveTo(T.x, T.y);
+      fg.arc.forEach(ll => { const q = toC(ll); g.lineTo(q.x, q.y); }); g.closePath();
+      g.fillStyle = C_SECTOR; g.globalAlpha = .18; g.fill(); g.globalAlpha = 1; g.strokeStyle = C_SECTOR; g.lineWidth = 2.4 * u; g.stroke(); g.restore();
+    }
+    if (sh.path && sh.prepo) {
+      g.save(); g.beginPath(); fg.path.forEach((q, i) => { const c = toC(q.ll); i ? g.lineTo(c.x, c.y) : g.moveTo(c.x, c.y); });
+      g.strokeStyle = 'rgba(0,0,0,.5)'; g.lineWidth = 5 * u; g.stroke(); g.strokeStyle = C_PATH; g.lineWidth = 2.6 * u; g.stroke(); g.restore();
+      fg.path.forEach(q => { const c = dot(q.ll, C_PATH, 3.2); shadowText(`${q.wind}`, c.x + 8 * u, c.y - 8 * u, C_PATH, 11); });
+    }
+    if (sh.prepo) {
+      if (fg.zoneR > 0) {
+        const c = toC(fg.cur.ll); g.save(); g.strokeStyle = C_PREPO; g.lineWidth = 2.2 * u; g.setLineDash([6 * u, 6 * u]);
+        g.beginPath(); g.arc(c.x, c.y, fg.zoneR * pxPerM(fg.cur.ll), 0, 2 * Math.PI); g.stroke(); g.restore();
       }
+      const c = dot(fg.cur.ll, C_PREPO, 8.5);
+      shadowText(`${Math.round(fg.cur.h)} m`, c.x + 14 * u, c.y, C_PREPO, 15);
     }
-    if (showRec()) line(c.setup, c.rec, '#ffffff', 1, [2, 6]);
-    circle(c.setup, c.geo.rSetup, col.setup);
-    if (showRec()) circle(c.rec, c.geo.rRec, col.rec);
-    dot(c.setup, col.setup, 8, `Setup ${cfgName(c)}`);
-    if (showRec()) dot(c.rec, col.rec, 6.5, `Snap ${cfgName(c)}`);
+  }
+  // Cible
+  { const c = toC(current.target); g.save();
+    [[11, '#fff'], [8, C_TARGET], [4.5, '#fff'], [2, C_TARGET]].forEach(([r, col]) => { g.beginPath(); g.arc(c.x, c.y, r * u, 0, 2 * Math.PI); g.fillStyle = col; g.fill(); });
+    g.lineWidth = 1.2 * u; g.strokeStyle = '#111'; g.beginPath(); g.arc(c.x, c.y, 11 * u, 0, 2 * Math.PI); g.stroke(); g.restore(); }
+  // Repères : point + distance à la cible
+  if (sh.reperes) current.reperes.forEach(r => {
+    const c = toC(r); g.save(); g.translate(c.x, c.y); g.rotate(Math.PI / 4);
+    g.fillStyle = C_REP; g.strokeStyle = '#111'; g.lineWidth = 1.4 * u; g.fillRect(-5 * u, -5 * u, 10 * u, 10 * u); g.strokeRect(-5 * u, -5 * u, 10 * u, 10 * u); g.restore();
+    shadowText(`${r.name ? r.name + ' · ' : ''}${Math.round(repDist(r))} m`, c.x + 12 * u, c.y, C_REP, 13);
   });
-  gateMark('A', `Portes ${cardOf(headingOf('A'))}`);
-  if (!current.single) gateMark('B', `Portes ${cardOf(headingOf('B'))}`);
 
-  // ---- Flèche du nord (haut droite) ----
-  const nx = 85 * u, ny = 95 * u, na = pageAngle(0); // coin haut gauche (les libellés partent vers la droite)
+  // ---- Flèche du nord (coin haut gauche) ----
+  const nx = 85 * u, ny = 95 * u, na = pageAngle(0);
   g.save(); g.fillStyle = 'rgba(0,0,0,.6)'; g.beginPath(); g.arc(nx, ny, 40 * u, 0, 2 * Math.PI); g.fill();
   g.translate(nx, ny); g.rotate(na);
   g.fillStyle = '#fff'; g.beginPath(); g.moveTo(0, -30 * u); g.lineTo(-12 * u, 12 * u); g.lineTo(0, 4 * u); g.lineTo(12 * u, 12 * u); g.closePath(); g.fill();
   g.restore();
   shadowText('N', nx + Math.sin(na) * 52 * u, ny - Math.cos(na) * 52 * u, '#fff', 13, 'center');
 
-  // ---- Échelle graphique (sur la photo, juste au-dessus du bandeau) ----
+  // ---- Échelle graphique ----
   const by = H - band;
   const tx = (s2, x, y, c, size, bold, align) => { g.save(); g.font = `${bold ? 700 : 500} ${(size || fs) * u}px -apple-system, Helvetica, Arial, sans-serif`; g.fillStyle = c || '#eee'; g.textBaseline = 'middle'; g.textAlign = align || 'left'; g.fillText(s2, x, y); g.restore(); };
-  const mppC = 1 / pxPerM(current.gateA);
+  const mppC = 1 / pxPerM(current.target);
   const target = W * 0.18 * mppC, nice = [5, 10, 20, 25, 50, 100, 200, 250, 500, 1000].reduce((a, b) => (b <= target ? b : a), 5);
   const barW = nice / mppC, sx = 30 * u, sy = by - 28 * u;
   g.save(); g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect(sx - 10 * u, sy - 16 * u, barW + 90 * u, 32 * u);
@@ -1153,18 +972,19 @@ async function renderPdfCanvas() {
 
   // ---- Bandeau d'informations ----
   g.save(); g.fillStyle = 'rgba(12,12,12,.82)'; g.fillRect(0, by, W, band); g.restore();
-  const p = current.params, t = (+p.t1 || 0) + (+p.t2 || 0), r0 = Math.round;
-  const col1 = 30 * u, col2 = W * 0.52, l0 = by + lh * 1.1;
+  const p = current.params, r0 = Math.round;
+  const col1 = 30 * u, col2 = W * 0.5, l0 = by + lh * 1.1;
   tx(`${current.name}`, col1, l0, '#fff', fs * 1.3, true);
-  tx(`${new Date().toLocaleDateString('fr-FR')} · ${current.single ? 'porte unique' : `couloir ${r0(corridorLength())} m`}`, col1, l0 + lh * 1.2, '#bbb');
-  let ly = l0 + lh * 2.4;
-  cfs.forEach(c => { tx(`${cfgName(c)} : poser au ${hdg(c.heading)}, virage à ${c.turn === 'G' ? 'gauche' : 'droite'}`, col1, ly, c.colors.setup, fs, true); ly += lh; });
+  tx(`${new Date().toLocaleDateString('fr-FR')} · secteur de finale ${p.sector}°`, col1, l0 + lh * 1.2, '#bbb');
+  if (fg) {
+    tx(`Vent du ${hdg(current.windDir)} (${cardOf(current.windDir)}) · ${fmt1(current.windSpeed)} m/s · finale au ${hdg(finalHeading())}`, col1, l0 + lh * 2.4, C_SECTOR, fs, true);
+    tx(`Prépo ${current.side === 'D' ? 'à droite' : 'à gauche'} : ${r0(fg.cur.d)} m prof. · ${r0(fg.cur.s)} m déport · ${r0(fg.cur.h)} m haut.`, col1, l0 + lh * 3.4, C_PREPO, fs, true);
+  }
   [
-    `Abattée + rotation ${p.t1} s · recouvrement ${p.t2} s`,
-    `Setup : ${p.setupBack} m arrière · ${p.setupSide} m latéral` + (p.setupHeight != null && p.setupHeight !== '' ? ` · hauteur ${p.setupHeight} m` : ''),
-    `Point de snap : ${p.recBack} m arrière`,
-    `Étape de base : ${p.legTime} s à ${p.legSpeed} m/s = ${p.legLen} m` + (p.legHeight != null && p.legHeight !== '' ? ` · entrée à ${p.legHeight} m` : ''),
-    `Cercles ${p.vref} m/s : setup ${r0(p.vref * t)} m · snap ${r0(p.vref * p.t2)} m`
+    `Prépo vent nul : ${p.d0} m prof. · ${p.s0} m déport · ${p.h0} m haut.`,
+    `Prépo vent max (${p.vmax} m/s) : ${p.dM} m prof. · ${p.sM} m déport · ${p.hM} m haut.`,
+    (+p.zoneFrac > 0) ? `Zone de prépo : largeur du secteur à ${fmt1(+p.zoneFrac)} de la longueur` : 'Prépo : point',
+    `Chemin jaune : prépos de 0 à ${p.vmax} m/s (chiffres = vent en m/s)`
   ].forEach((s2, i) => tx(s2, col2, l0 + i * lh, '#eee'));
   tx(`Imagerie © Esri, Maxar, Earthstar Geographics · prepo-PA v${VERSION}`, W - 20 * u, H - 10 * u, '#888', 8, false, 'right');
 
@@ -1173,7 +993,7 @@ async function renderPdfCanvas() {
 
 let pdfFile = null;
 $('btnPdf').addEventListener('click', async () => {
-  if (!hasGates()) return toast('Place d\'abord les deux portes');
+  if (!hasTarget() || !hasWind()) return toast('Place d\'abord la cible et règle le vent');
   const b = $('btnPdf'); b.disabled = true; const old = b.textContent; b.textContent = 'Préparation du PDF…';
   try {
     await loadJsPdf();
@@ -1199,6 +1019,7 @@ $('pdfShare').addEventListener('click', async () => {
   } catch (e) { if (e && e.name !== 'AbortError') toast('Partage impossible'); }
 });
 
+
 // ---------- Sauvegarde ----------
 // Exporter : fichier .json (zones + manœuvre) proposé à la feuille de partage (Fichiers, AirDrop, mail…).
 $('btnExport').addEventListener('click', async () => {
@@ -1220,7 +1041,7 @@ $('importFile').addEventListener('change', async e => {
     const d = JSON.parse(await f.text());
     if (!Array.isArray(d.zones)) throw new Error('format');
     const wasEmpty = zones.length === 0;
-    if (wasEmpty && d.profile) { PROFILE_KEYS.forEach(k => { if (d.profile[k] !== undefined) profile[k] = d.profile[k]; }); profile.legLen = legLenOf(profile); store.set('pa.profile', profile); }
+    if (wasEmpty && d.profile) { PROFILE_KEYS.forEach(k => { if (d.profile[k] !== undefined) profile[k] = d.profile[k]; }); store.set('pa.profile', profile); }
     let added = 0, updated = 0;
     d.zones.map(upgrade).forEach(z => {
       if (!z.id) z.id = 'z' + Date.now() + Math.random().toString(36).slice(2, 6);
@@ -1248,9 +1069,9 @@ function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<':
 $('ver').textContent = VERSION;
 syncCompass();
 fillInputs();
-if (hasGates()) fitFigure();
+if (hasTarget()) fitFigure();
 redraw();
-if (!current.gateA && !current.id && current.zoom < 10) locate(true); else locate(false);
+if (!current.target && !current.id && current.zoom < 10) locate(true); else locate(false);
 // Mise à jour automatique : vérifie une nouvelle version à chaque retour sur l'appli et recharge dès qu'elle est installée
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
   const hadController = !!navigator.serviceWorker.controller;
