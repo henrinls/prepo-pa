@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.7.2';
+const VERSION = '0.8.0';
 const APP_ID = 'pa';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -251,7 +251,7 @@ let sectorPoly = null, prepoMk = null;
 function syncSector(f, sh) {
   if (f && sh && sh.sector) {
     const lls = [LL(current.target), ...f.arc.map(LL)];
-    if (!sectorPoly) { sectorPoly = L.polygon(lls, { color: C_SECTOR, weight: 1.5, fillColor: C_SECTOR, fillOpacity: .16, interactive: true }).addTo(map); sectorPoly.bringToBack(); sectorDrag(sectorPoly); }
+    if (!sectorPoly) { sectorPoly = L.polygon(lls, { color: C_SECTOR, weight: 1.5, fillColor: C_SECTOR, fillOpacity: 0, interactive: true }).addTo(map); /* fond non teinté, mais remplissage invisible gardé : l appui long marche dans tout le secteur */ sectorPoly.bringToBack(); sectorDrag(sectorPoly); }
     else sectorPoly.setLatLngs(lls);
   } else if (sectorPoly) { map.removeLayer(sectorPoly); sectorPoly = null; }
 }
@@ -1030,7 +1030,7 @@ async function renderPdfCanvas() {
     if (sh.sector) {
       g.save(); g.beginPath(); const T = toC(current.target); g.moveTo(T.x, T.y);
       fg.arc.forEach(ll => { const q = toC(ll); g.lineTo(q.x, q.y); }); g.closePath();
-      g.fillStyle = C_SECTOR; g.globalAlpha = .18; g.fill(); g.globalAlpha = 1; g.strokeStyle = C_SECTOR; g.lineWidth = 2.4 * u; g.stroke(); g.restore();
+      g.strokeStyle = C_SECTOR; g.lineWidth = 2.4 * u; g.stroke(); g.restore();
     }
     if (sh.path && sh.prepo) {
       g.save(); g.beginPath(); fg.path.forEach((q, i) => { const c = toC(q.ll); i ? g.lineTo(c.x, c.y) : g.moveTo(c.x, c.y); });
