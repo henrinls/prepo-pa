@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.7.1';
+const VERSION = '0.7.2';
 const APP_ID = 'pa';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -27,6 +27,7 @@ const DEFAULT_PARAMS = {
   ticks: true
 };
 const PROFILE_KEYS = ['sector', 'vmax', 'd0', 's0', 'h0', 'dM', 'sM', 'hM', 'zoneFrac'];
+const ROSE_R = 100; // rayon de la rosace autour de la cible (m), fixe ; le secteur de finale va toujours jusqu'à elle
 const C_TARGET = '#ff2020', C_SECTOR = '#ff8c00', C_PREPO = '#ff2020', C_PATH = '#ffd400', C_REP = '#ffffff';
 const isDark = c => c === '#000000';
 
@@ -122,7 +123,7 @@ function figure() {
   if (!hasTarget() || !hasWind()) return null;
   const p = current.params, half = Math.max(1, +p.sector || 30) / 2;
   const cur = prepoAt(windSpd());
-  const R = Math.max(20, cur.dist);
+  const R = ROSE_R; // le secteur est toujours une part de la rosace (100 m)
   const W = finalHeading(), back = W + 180;
   const arc = [];
   for (let a = -half; a <= half + 0.01; a += half / 8) {
@@ -145,7 +146,7 @@ function figurePoints() {
   if (f) {
     pts.push(...f.arc, f.cur.ll); if (f.seg) pts.push(...f.seg);
     if (current.params.ticks !== false) { // cercle gradué autour de la cible, chiffres compris
-      const rr = Math.max(25, f.R * 0.45) * 1.3;
+      const rr = ROSE_R * 1.3;
       for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; pts.push(Geo.fromLocal(current.target, { x: rr * Math.sin(a), y: rr * Math.cos(a) })); }
     }
     if (current.show.path) f.path.forEach(q => pts.push(q.ll));
@@ -217,7 +218,7 @@ function draw() {
   const f = figure(), sh = current.show;
   if (f) {
     // Graduations en degrés autour de la cible (pour lire la direction du vent)
-    if (current.params.ticks !== false) degRing(current.target, Math.max(25, f.R * 0.45), '#ffffff');
+    if (current.params.ticks !== false) degRing(current.target, ROSE_R, '#ffffff');
     // Secteur de finale : sommet sur la cible, ouvert côté sous le vent, jusqu'à la prépo affichée
     syncSector(f, sh); // secteur persistant (appui long + tourner = forcer la direction du vent)
     // Chemin des prépos de 0 au vent max, gradué tous les 1 m/s
@@ -1016,7 +1017,7 @@ async function renderPdfCanvas() {
   const fg = figure(), sh = current.show;
   if (fg) {
     if (current.params.ticks !== false) { // graduations autour de la cible
-      const c = toC(current.target), Rr = Math.max(25, fg.R * 0.45) * pxPerM(current.target);
+      const c = toC(current.target), Rr = ROSE_R * pxPerM(current.target);
       g.save(); g.strokeStyle = '#fff'; g.globalAlpha = .8; g.lineWidth = 1.4 * u; g.setLineDash([4 * u, 6 * u]);
       g.beginPath(); g.arc(c.x, c.y, Rr, 0, 2 * Math.PI); g.stroke(); g.setLineDash([]); g.globalAlpha = 1;
       Geo.degTicks(Rr / u, 40).forEach(deg => { // degrés magnétiques
