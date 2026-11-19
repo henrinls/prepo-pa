@@ -4,7 +4,7 @@ window.addEventListener('error', e => {
   const t = document.getElementById('toast');
   if (t) { t.textContent = 'Erreur : ' + (e.message || 'inconnue') + ' — ferme et rouvre l\'appli'; t.classList.remove('hidden'); }
 });
-const VERSION = '0.4.0';
+const VERSION = '0.5.0';
 const APP_ID = 'pa';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -194,24 +194,24 @@ function draw() {
     if (current.params.ticks !== false) degRing(current.target, Math.max(25, f.R * 0.45), '#ffffff');
     // Secteur de finale : sommet sur la cible, ouvert côté sous le vent, jusqu'à la prépo affichée
     if (sh.sector) {
-      L.polygon([LL(current.target), ...f.arc.map(LL)], { color: C_SECTOR, weight: 2, fillColor: C_SECTOR, fillOpacity: .16, interactive: false }).addTo(fig);
+      L.polygon([LL(current.target), ...f.arc.map(LL)], { color: C_SECTOR, weight: 1.5, fillColor: C_SECTOR, fillOpacity: .16, interactive: false }).addTo(fig);
     }
     // Chemin des prépos de 0 au vent max, gradué tous les 1 m/s
     if (sh.path && sh.prepo) {
       const pl = f.path.map(q => LL(q.ll));
-      L.polyline(pl, { color: '#000', weight: 5, opacity: .45, interactive: false }).addTo(fig);
-      L.polyline(pl, { color: C_PATH, weight: 2.5, interactive: false }).addTo(fig);
+      L.polyline(pl, { color: '#000', weight: 3.5, opacity: .45, interactive: false }).addTo(fig);
+      L.polyline(pl, { color: C_PATH, weight: 1.6, interactive: false }).addTo(fig);
       const step = pathLabelStep(f);
       f.path.forEach(q => {
-        L.circleMarker(LL(q.ll), { radius: 3, color: '#111', weight: 1, fillColor: C_PATH, fillOpacity: 1, interactive: false }).addTo(fig);
+        L.circleMarker(LL(q.ll), { radius: 2.5, color: '#111', weight: 1, fillColor: C_PATH, fillOpacity: 1, interactive: false }).addTo(fig);
         if (q.wind % step === 0 || q.wind === f.path.length - 1)
           L.marker(LL(q.ll), { interactive: false, icon: L.divIcon({ className: 'plabel', iconSize: [0, 0], html: `<span>${q.wind}</span>` }) }).addTo(grads);
       });
     }
     // Prépo du vent saisi (point, ou zone si réglée) + sa hauteur
     if (sh.prepo) {
-      if (f.zoneR > 0) L.circle(LL(f.cur.ll), { radius: f.zoneR, color: C_PREPO, weight: 2, fillOpacity: .12, dashArray: '5 5', interactive: false }).addTo(fig);
-      L.marker(LL(f.cur.ll), { interactive: false, zIndexOffset: 500, icon: dotIcon(C_PREPO, 16, `${Math.round(f.cur.h)} m`, 'big') }).addTo(fig);
+      if (f.zoneR > 0) L.circle(LL(f.cur.ll), { radius: f.zoneR, color: C_PREPO, weight: 1.5, fillOpacity: .12, dashArray: '5 5', interactive: false }).addTo(fig);
+      L.marker(LL(f.cur.ll), { interactive: false, zIndexOffset: 500, icon: dotIcon(C_PREPO, 12, `${Math.round(f.cur.h)} m`) }).addTo(fig);
     }
   }
   placeMarkers();
@@ -484,8 +484,8 @@ function updateMeasure() {
   const a = meas.a, b = meas.b, d = map.distance(LL(a), LL(b)), c = capDeg(a, b), mid = [(a.lat + b.lat) / 2, (a.lng + b.lng) / 2];
   const txt = `${hdg(c)} · ${fmtDist(d)}`;
   if (!meas.line) {
-    meas.halo = L.polyline([LL(a), LL(b)], { color: '#000', weight: 5, opacity: .5, interactive: false }).addTo(measLayer);
-    meas.line = L.polyline([LL(a), LL(b)], { color: '#00e5ff', weight: 3, dashArray: '8 6', interactive: false }).addTo(measLayer);
+    meas.halo = L.polyline([LL(a), LL(b)], { color: '#000', weight: 3.5, opacity: .5, interactive: false }).addTo(measLayer);
+    meas.line = L.polyline([LL(a), LL(b)], { color: '#00e5ff', weight: 2, dashArray: '8 6', interactive: false }).addTo(measLayer);
     meas.lbl = L.marker(mid, { interactive: false, icon: L.divIcon({ className: 'measlbl', iconSize: [0, 0], html: `<span>${txt}</span>` }) }).addTo(measLayer);
   } else {
     meas.halo.setLatLngs([LL(a), LL(b)]); meas.line.setLatLngs([LL(a), LL(b)]); meas.lbl.setLatLng(mid);
@@ -746,7 +746,7 @@ function locate(center) {
   navigator.geolocation.getCurrentPosition(pos => {
     const ll = [pos.coords.latitude, pos.coords.longitude];
     if (posMarker) posMarker.setLatLng(ll);
-    else posMarker = L.circleMarker(ll, { radius: 7, color: '#fff', weight: 2, fillColor: '#2f80ff', fillOpacity: 1 }).addTo(map);
+    else posMarker = L.circleMarker(ll, { radius: 6, color: '#fff', weight: 1.5, fillColor: '#2f80ff', fillOpacity: 1 }).addTo(map);
     if (center) map.setView(ll, Math.max(map.getZoom(), 17));
   }, () => { if (center) toast('Position refusée ou indisponible'); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 });
 }
