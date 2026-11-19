@@ -4,7 +4,7 @@ window.addEventListener('error', e => {
   const t = document.getElementById('toast');
   if (t) { t.textContent = 'Erreur : ' + (e.message || 'inconnue') + ' — ferme et rouvre l\'appli'; t.classList.remove('hidden'); }
 });
-const VERSION = '0.6.0';
+const VERSION = '0.7.0';
 const APP_ID = 'pa';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -17,7 +17,7 @@ const DEFAULT_PARAMS = {
   sector: 30, vmax: 7,
   d0: 250, s0: 80, h0: 300,     // prépo par vent nul : profondeur, déport latéral, hauteur (m)
   dM: 80, sM: 30, hM: 150,      // prépo au vent max
-  zoneFrac: 0,                  // zone de prépo : 0 = simple point ; sinon diamètre = largeur du secteur à cette fraction
+  zoneFrac: 0.5,                // prépo = segment perpendiculaire au vent, long comme la largeur du secteur à cette fraction de la distance de la prépo (0 = point)
   ticks: true
 };
 const PROFILE_KEYS = ['sector', 'vmax', 'd0', 's0', 'h0', 'dM', 'sM', 'hM', 'zoneFrac'];
@@ -37,8 +37,9 @@ function upgrade(z) {
   z.show = Object.assign({}, SHOW_DEFAULT, typeof z.show === 'object' ? z.show : {});
   z.reperes = Array.isArray(z.reperes) ? z.reperes : [];
   z.side = z.side === 'G' ? 'G' : 'D';
-  if (typeof z.windDir !== 'number') z.windDir = null;
-  if (typeof z.windSpeed !== 'number') z.windSpeed = 0;
+  if (typeof z.forceDir !== 'number') z.forceDir = null;   // direction forcée (vrai), sinon vent d'Internet
+  if (typeof z.forceSpd !== 'number') z.forceSpd = null;   // force forcée (m/s), sinon vent d'Internet
+  delete z['windDir']; delete z['windSpeed'];             // ancien vent saisi à la main (avant v0.7.0)
   return z;
 }
 let zones = store.get('pa.zones', []).map(upgrade);
@@ -51,6 +52,7 @@ if (current.gateA && !current.target) current = newZone(null);
 // ---------- Manœuvre : réglages communs à toutes les zones ----------
 let profile = store.get('pa.profile', null) || {};
 PROFILE_KEYS.forEach(k => { if (profile[k] === undefined) profile[k] = DEFAULT_PARAMS[k]; });
+if (!store.get('pa.mig.frac', false)) { if (!(+profile.zoneFrac > 0)) profile.zoneFrac = DEFAULT_PARAMS.zoneFrac; store.set('pa.mig.frac', true); } // ancien défaut 0 (point) → 0,5 (v0.7.0), une seule fois
 Object.keys(profile).forEach(k => { if (!PROFILE_KEYS.includes(k)) delete profile[k]; }); // restes de la copie PSV
 store.set('pa.profile', profile);
 function applyProfile(z) { if (z && z.params) PROFILE_KEYS.forEach(k => { z.params[k] = profile[k]; }); }
@@ -60,7 +62,7 @@ function newZone(center) {
   return upgrade({
     id: null, name: 'Nouvelle zone',
     center: center || { lat: 46.6, lng: 2.4 }, zoom: center ? 17 : 6,
-    target: null, windDir: null, windSpeed: 0, side: 'D', reperes: [],
+    target: null, forceDir: null, forceSpd: null, side: 'D', reperes: [],
     params: Object.assign({}, DEFAULT_PARAMS)
   });
 }
@@ -84,10 +86,21 @@ const fmt1 = v => (Math.round(v * 10) / 10).toString().replace('.', ',');
 
 // ---------- Figure (calcul pur, réutilisé par la carte et le PDF) ----------
 // Repère local centré sur la cible (x = Est, y = Nord, en m).
-// Le vent vient de windDir : on pose face au vent (cap de finale = windDir), en arrivant du côté sous le vent.
+// Le vent vient de la direction finalHeading() : on pose face au vent, en arrivant du côté sous le vent.
 function hasTarget() { return !!current.target; }
-function hasWind() { return typeof current.windDir === 'number'; }
-function finalHeading() { return hasWind() ? ((current.windDir % 360) + 360) % 360 : 0; }
+// Vent utilisé : celui forcé par l'utilisateur, sinon le vent de surface (10 m) de la prévision à l'heure du panneau 🌬
+let Wind = null; // panneau des vents (wind.js), créé plus bas
+const n360 = h => ((h % 360) + 360) % 360;
+function netWind() { return Wind ? Wind.surface() : null; }
+function windNow() {
+  const n = netWind(), fd = typeof current.forceDir === 'number', fs = typeof current.forceSpd === 'number';
+  const dir = fd ? current.forceDir : (n ? n.dir : null), spd = fs ? current.forceSpd : (n ? n.spd : 0);
+  return dir == null ? null : { dir: n360(dir), spd: Math.max(0, spd || 0) };
+}
+function isForced() { return typeof current.forceDir === 'number' || typeof current.forceSpd === 'number'; }
+function hasWind() { return !!windNow(); }
+function finalHeading() { const w = windNow(); return w ? w.dir : 0; }
+function windSpd() { const w = windNow(); return w ? w.spd : 0; }
 function prepoAt(v) { // prépo pour un vent de v m/s, interpolée en ligne droite entre vent nul et vent max
   const p = current.params, vm = Math.max(0.1, +p.vmax || 7), k = Math.min(1, Math.max(0, (+v || 0) / vm));
   const lerp = (a, b) => (+a || 0) + ((+b || 0) - (+a || 0)) * k;
@@ -102,7 +115,7 @@ function prepoAt(v) { // prépo pour un vent de v m/s, interpolée en ligne droi
 function figure() {
   if (!hasTarget() || !hasWind()) return null;
   const p = current.params, half = Math.max(1, +p.sector || 30) / 2;
-  const cur = prepoAt(current.windSpeed);
+  const cur = prepoAt(windSpd());
   const R = Math.max(20, cur.dist);
   const W = finalHeading(), back = W + 180;
   const arc = [];
@@ -112,8 +125,10 @@ function figure() {
   }
   const vm = Math.max(1, Math.round(+p.vmax || 7));
   const path = []; for (let v = 0; v <= vm; v++) path.push(Object.assign({ wind: v }, prepoAt(v)));
-  const zoneR = (+p.zoneFrac || 0) > 0 ? (+p.zoneFrac) * R * Math.tan(half * Math.PI / 180) : 0;
-  return { cur, R, arc, half, path, zoneR, W };
+  // Prépo = segment perpendiculaire à l'axe du vent, centré sur la prépo, long comme la largeur du secteur à zoneFrac × distance de la prépo
+  const hl = Math.max(0, +p.zoneFrac || 0) * cur.dist * Math.tan(half * Math.PI / 180), wr = W * Math.PI / 180, rt = { x: Math.cos(wr), y: -Math.sin(wr) };
+  const seg = hl > 0.5 ? [Geo.fromLocal(current.target, { x: cur.v.x + rt.x * hl, y: cur.v.y + rt.y * hl }), Geo.fromLocal(current.target, { x: cur.v.x - rt.x * hl, y: cur.v.y - rt.y * hl })] : null;
+  return { cur, R, arc, half, path, seg, segLen: 2 * hl, W };
 }
 function repDist(r) { return current.target ? map.distance(LL(current.target), LL(r)) : 0; }
 // Toutes les positions à faire tenir dans un cadrage
@@ -122,7 +137,7 @@ function figurePoints() {
   if (current.target) pts.push(current.target);
   const f = figure();
   if (f) {
-    pts.push(...f.arc, f.cur.ll);
+    pts.push(...f.arc, f.cur.ll); if (f.seg) pts.push(...f.seg);
     if (current.params.ticks !== false) { // cercle gradué autour de la cible, chiffres compris
       const rr = Math.max(25, f.R * 0.45) * 1.3;
       for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; pts.push(Geo.fromLocal(current.target, { x: rr * Math.sin(a), y: rr * Math.cos(a) })); }
@@ -190,17 +205,15 @@ function draw() {
   updateInfo(); syncQuick(); syncPlaceBtn();
   if (!hasTarget()) {
     if (placing) placeBanner(); else setBanner('Pour commencer : ☰ → ＋ Nouvelle zone, puis place la cible.');
-    placeMarkers(); return;
+    syncSector(null); syncPrepoMk(null); placeMarkers(); return;
   }
-  if (!placing) setBanner(hasWind() ? null : 'Règle le vent du jour : bouton 🌬 à gauche.');
+  if (!placing) setBanner(hasWind() ? null : 'Pas de vent : prévision pas encore téléchargée (réseau ?). Bouton 🌬 pour la voir ou forcer le vent.');
   const f = figure(), sh = current.show;
   if (f) {
     // Graduations en degrés autour de la cible (pour lire la direction du vent)
     if (current.params.ticks !== false) degRing(current.target, Math.max(25, f.R * 0.45), '#ffffff');
     // Secteur de finale : sommet sur la cible, ouvert côté sous le vent, jusqu'à la prépo affichée
-    if (sh.sector) {
-      L.polygon([LL(current.target), ...f.arc.map(LL)], { color: C_SECTOR, weight: 1.5, fillColor: C_SECTOR, fillOpacity: .16, interactive: false }).addTo(fig);
-    }
+    syncSector(f, sh); // secteur persistant (appui long + tourner = forcer la direction du vent)
     // Chemin des prépos de 0 au vent max, gradué tous les 1 m/s
     if (sh.path && sh.prepo) {
       const pl = f.path.map(q => LL(q.ll));
@@ -215,11 +228,52 @@ function draw() {
     }
     // Prépo du vent saisi (point, ou zone si réglée) + sa hauteur
     if (sh.prepo) {
-      if (f.zoneR > 0) L.circle(LL(f.cur.ll), { radius: f.zoneR, color: C_PREPO, weight: 1.5, fillOpacity: .12, dashArray: '5 5', interactive: false }).addTo(fig);
-      L.marker(LL(f.cur.ll), { interactive: false, zIndexOffset: 500, icon: dotIcon(C_PREPO, 12, `${Math.round(f.cur.h)} m`) }).addTo(fig);
+      if (f.seg) {
+        L.polyline(f.seg.map(LL), { color: '#000', weight: 4, opacity: .45, interactive: false }).addTo(fig);
+        L.polyline(f.seg.map(LL), { color: C_PREPO, weight: 2, interactive: false }).addTo(fig);
+      }
+
     }
   }
+  if (!f) { syncSector(null); syncPrepoMk(null); }
+  else syncPrepoMk(f, sh); // prépo persistante (appui long + glisser le long du chemin jaune = forcer la force du vent)
   placeMarkers();
+}
+// Secteur et prépo ne sont jamais recréés : un élément retiré de la page pendant un geste ne reçoit plus le doigt
+let sectorPoly = null, prepoMk = null;
+function syncSector(f, sh) {
+  if (f && sh && sh.sector) {
+    const lls = [LL(current.target), ...f.arc.map(LL)];
+    if (!sectorPoly) { sectorPoly = L.polygon(lls, { color: C_SECTOR, weight: 1.5, fillColor: C_SECTOR, fillOpacity: .16, interactive: true }).addTo(map); sectorPoly.bringToBack(); sectorDrag(sectorPoly); }
+    else sectorPoly.setLatLngs(lls);
+  } else if (sectorPoly) { map.removeLayer(sectorPoly); sectorPoly = null; }
+}
+function syncPrepoMk(f, sh) {
+  if (f && sh && sh.prepo) {
+    const lab = `${Math.round(f.cur.h)} m`;
+    if (!prepoMk) { prepoMk = L.marker(LL(f.cur.ll), { zIndexOffset: 500, icon: dotIcon(C_PREPO, 12, lab, 'prepo') }).addTo(map); prepoDrag(prepoMk); }
+    else { prepoMk.setLatLng(LL(f.cur.ll)); const b = prepoMk.getElement() && prepoMk.getElement().querySelector('b'); if (b && b.textContent !== lab) b.textContent = lab; }
+  } else if (prepoMk) { map.removeLayer(prepoMk); prepoMk = null; }
+}
+// Forcer le vent sur la carte (les gestes passent par longPressDrag, comme pour la cible)
+function roundMag(dirTrue) { return n360(Math.round(n360(dirTrue - declHere())) + declHere()); } // direction ronde en magnétique
+function sectorDrag(poly) {
+  const el = poly.getElement ? poly.getElement() : poly._path; if (!el) return;
+  longPressDrag({ getElement: () => el, setLatLng: () => {} }, ll => {
+    const v = Geo.toLocal(current.target, ll); if (Math.hypot(v.x, v.y) < 2) return;
+    current.forceDir = roundMag(Math.atan2(v.x, v.y) * 180 / Math.PI + 180); // le secteur s'ouvre sous le vent : le vent vient de l'autre côté
+    drawLight(); syncQuick();
+  }, () => { persist(); syncForced(); redraw(); toast(`Direction du vent forcée : ${hdg(current.forceDir)} · ✕ pour revenir au vent d'Internet`); });
+}
+function speedFromPoint(ll) { // projette le doigt sur le chemin des prépos (droite de 0 au vent max) → force du vent
+  const vm = Math.max(0.1, +current.params.vmax || 7), A = prepoAt(0).v, B = prepoAt(vm).v, P = Geo.toLocal(current.target, ll);
+  const dx = B.x - A.x, dy = B.y - A.y, L2 = dx * dx + dy * dy; if (L2 < 1) return null;
+  const k = Math.min(1, Math.max(0, ((P.x - A.x) * dx + (P.y - A.y) * dy) / L2));
+  return Math.round(k * vm * 10) / 10;
+}
+function prepoDrag(m) {
+  longPressDrag(m, ll => { const s = speedFromPoint(ll); if (s != null) { current.forceSpd = s; drawLight(); syncQuick(); } },
+    () => { persist(); syncForced(); redraw(); toast(`Force du vent forcée : ${fmt1(current.forceSpd)} m/s · ✕ pour revenir au vent d'Internet`); });
 }
 function pathLabelStep(f) { // chiffres du chemin : pas plus serrés que ~26 px
   const a = map.latLngToContainerPoint(LL(f.path[0].ll)), b = map.latLngToContainerPoint(LL(f.path[f.path.length - 1].ll));
@@ -333,8 +387,8 @@ function addRepere(p) {
 }
 function setTarget(p) {
   current.target = p; persist(); redraw();
-  if (!hasWind()) { openWind(); toast('Cible placée. Règle maintenant le vent du jour.'); }
-  else { fitFigure(); toast('Cible placée. Appui long dessus pour la déplacer.'); }
+  toast('Cible placée. Appui long dessus pour la déplacer.');
+  Wind.ensure(false).then(() => { if (hasWind()) fitFigure(); else { Wind.open(); toast('Pas de prévision (réseau ?) : force le vent dans ce panneau.'); } });
 }
 
 // Cadre la figure dans la partie libre de l'écran (hors barre du haut, boutons de gauche, zoom),
@@ -366,8 +420,8 @@ function fitFigure() {
 function updateInfo() {
   const f = figure();
   $('axisInfo').textContent = !hasTarget() ? 'Cible pas encore placée.'
-    : !hasWind() ? 'Vent du jour pas encore réglé (bouton 🌬 sur la carte).'
-    : `Vent du ${hdg(current.windDir)} (${cardOf(current.windDir)}) · ${fmt1(current.windSpeed)} m/s · finale au ${hdg(finalHeading())} · prépo ${current.side === 'D' ? 'à droite' : 'à gauche'} : ${Math.round(f.cur.d)} m en profondeur, ${Math.round(f.cur.s)} m de déport, ${Math.round(f.cur.h)} m de hauteur`;
+    : !hasWind() ? 'Pas de vent : pas de prévision (réseau ?) et rien de forcé — bouton 🌬.'
+    : `Vent ${isForced() ? 'forcé' : 'Internet'} du ${hdg(finalHeading())} (${cardOf(finalHeading())}) · ${fmt1(windSpd())} m/s · finale au ${hdg(finalHeading())} · prépo ${current.side === 'D' ? 'à droite' : 'à gauche'} : ${Math.round(f.cur.d)} m en profondeur, ${Math.round(f.cur.s)} m de déport, ${Math.round(f.cur.h)} m de hauteur`;
 }
 
 // ---------- Interface ----------
@@ -382,7 +436,7 @@ function fillInputs(only) {
   const p = current.params;
   (only || numFields).forEach(k => { const el = $('p_' + k); if (el && document.activeElement !== el) el.value = p[k] == null ? '' : String(p[k]).replace('.', ','); });
   if (only) return;
-  syncQuick(); syncWind();
+  syncQuick(); syncForced();
   $('zoneName').textContent = current.name + (current.id ? '' : ' (non enregistrée)');
 }
 numFields.forEach(k => {
@@ -402,8 +456,10 @@ function syncQuick() {
   $('qSide').textContent = current.side === 'D' ? 'Prépo D ▶' : '◀ Prépo G';
   [['qSector', 'sector'], ['qPrepo', 'prepo'], ['qPath', 'path'], ['qReperes', 'reperes']].forEach(([id, k]) => $(id).classList.toggle('on', !!sh[k]));
   $('qTicks').classList.toggle('on', current.params.ticks !== false);
-  $('qWind').innerHTML = hasWind() ? `🌬 ${hdg(current.windDir)}<br>${fmt1(current.windSpeed)} m/s` : '🌬 vent';
-  $('qWind').classList.toggle('warn', !hasWind());
+  $('qWind').innerHTML = hasWind() ? `🌬 ${hdg(finalHeading())}<br>${fmt1(windSpd())} m/s${isForced() ? ' ✎' : ''}` : '🌬 vent';
+  $('qWind').classList.toggle('warn', !hasWind()); $('qWind').classList.toggle('forced', hasWind() && isForced());
+  $('qWind').classList.toggle('on', !!Wind && Wind.isOpen());
+  $('qUnforce').classList.toggle('hidden', !isForced());
 }
 function quick(fn, msg) { fn(); syncQuick(); persist(); redraw(); if (msg) toast(msg()); }
 $('qSide').addEventListener('click', () => quick(() => { current.side = current.side === 'D' ? 'G' : 'D'; }, () => `Prépo à ${current.side === 'D' ? 'droite' : 'gauche'} (face à la cible, face au vent)`));
@@ -412,26 +468,36 @@ const SHOW_NAMES = { sector: 'Secteur de finale', prepo: 'Prépo', path: 'Chemin
   $(id).addEventListener('click', () => quick(() => { current.show[k] = !current.show[k]; }, () => `${SHOW_NAMES[k]} ${current.show[k] ? 'affiché' : 'masqué'}`)));
 $('qTicks').addEventListener('click', () => quick(() => { current.params.ticks = current.params.ticks === false; }, () => current.params.ticks ? 'Graduations affichées' : 'Graduations masquées'));
 
-// ---------- Vent du jour : direction (d'où il vient) et force, réglables sur la carte ----------
-function syncWind() {
-  if (document.activeElement !== $('w_dir')) $('w_dir').value = hasWind() ? magOf(current.windDir) : '';
-  if (document.activeElement !== $('w_spd')) $('w_spd').value = fmt1(current.windSpeed || 0);
-  $('windInfo').textContent = hasWind() ? `Finale au ${hdg(finalHeading())} (${cardOf(finalHeading())}), face au vent` : 'Indique d\'où vient le vent (en degrés).';
-}
-function openWind() { $('windBox').classList.remove('hidden'); syncWind(); }
-function setWind(dir, spd) {
-  if (dir !== undefined && !isNaN(dir)) current.windDir = ((dir % 360) + 360) % 360; // pas d'arrondi ici : la saisie magnétique doit se relire à l'identique
-  if (spd !== undefined && !isNaN(spd)) current.windSpeed = Math.max(0, Math.round(spd * 10) / 10);
-  persist(); syncWind(); redraw();
-}
-$('qWind').addEventListener('click', () => $('windBox').classList.contains('hidden') ? openWind() : $('windBox').classList.add('hidden'));
-$('windOk').addEventListener('click', () => { $('windBox').classList.add('hidden'); if (hasTarget() && hasWind()) fitFigure(); });
-document.querySelectorAll('[data-wdir]').forEach(b => b.addEventListener('click', () => setWind((hasWind() ? current.windDir : 0) + +b.dataset.wdir)));
-document.querySelectorAll('[data-wspd]').forEach(b => b.addEventListener('click', () => setWind(undefined, (current.windSpeed || 0) + +b.dataset.wspd)));
+// ---------- Vent : prévision Internet (panneau commun aux 3 applis, wind.js) ou vent forcé ----------
+Wind = WindPanel.make({
+  app: 'pa', decl: () => declHere(),
+  where: () => { const c = current.target || current.center; return c ? { id: current.id, lat: c.lat, lng: c.lng } : null; },
+  onChange: () => { syncForced(); syncQuick(); redraw(); }, onToggle: () => { syncForced(); syncQuick(); }
+});
 const numIn = el => parseFloat(String(el.value).replace(',', '.'));
-$('w_dir').addEventListener('change', e => { const v = numIn(e.target); if (!isNaN(v)) setWind(v + declHere()); }); // saisie en magnétique, gardée en vrai
-$('w_spd').addEventListener('change', e => setWind(undefined, numIn(e.target)));
-['w_dir', 'w_spd'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') e.target.blur(); }));
+function syncForced() {
+  const w = windNow(), n = netWind(), fd = typeof current.forceDir === 'number', fs = typeof current.forceSpd === 'number';
+  if (document.activeElement !== $('f_dir')) $('f_dir').value = w ? magOf(w.dir) : '';
+  if (document.activeElement !== $('f_spd')) $('f_spd').value = w ? fmt1(w.spd) : '';
+  $('f_state').innerHTML = fd && fs ? '<b class="warn">forcé (direction et force)</b>'
+    : fd ? '<b class="warn">direction forcée</b>, force d\'Internet'
+    : fs ? '<b class="warn">force forcée</b>, direction d\'Internet'
+    : n ? `Internet : vent à 10 m, ${Wind.fmtWhen(Wind.when)}` : 'aucun : pas de prévision et rien de forcé';
+  $('f_clear').classList.toggle('hidden', !isForced());
+}
+function setForce(dir, spd) {
+  if (dir !== undefined) current.forceDir = dir == null ? null : n360(dir);
+  if (spd !== undefined) current.forceSpd = spd == null ? null : Math.max(0, Math.round(spd * 10) / 10);
+  persist(); syncForced(); syncQuick(); redraw();
+}
+function clearForce() { setForce(null, null); toast('Vent d\'Internet (prévision)'); }
+$('qWind').addEventListener('click', () => Wind.isOpen() ? Wind.close() : Wind.open());
+$('qUnforce').addEventListener('click', clearForce);
+$('f_clear').addEventListener('click', clearForce);
+$('f_dir').addEventListener('change', e => { const v = numIn(e.target); if (!isNaN(v)) setForce(v + declHere()); }); // saisie en magnétique, gardée en vrai
+$('f_spd').addEventListener('change', e => { const v = numIn(e.target); if (!isNaN(v)) setForce(undefined, v); });
+['f_dir', 'f_spd'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') e.target.blur(); }));
+Wind.ensure(false);
 
 // ---------- Placement : cible et repères, en touchant la carte ou à ma position GPS ----------
 function syncPlaceBtn() {
@@ -766,7 +832,7 @@ $('btnNorth').addEventListener('click', () => setMapBearing(0, 'Nord en haut'));
 
 // Bouton « Axe » : axe de finale vers le haut (cap de finale = direction d'où vient le vent)
 $('btnAxisUp').addEventListener('click', () => {
-  if (!hasWind()) return toast('Règle d\'abord le vent du jour (🌬)');
+  if (!hasWind()) return toast('Pas de vent : bouton 🌬');
   setMapBearing(normB(-finalHeading()), `Axe de finale (${hdg(finalHeading())}) vers le haut`);
 });
 $('btnFit').addEventListener('click', () => { if (hasTarget()) fitFigure(); else toast('Place d\'abord la cible'); });
@@ -965,9 +1031,10 @@ async function renderPdfCanvas() {
       fg.path.forEach(q => { const c = dot(q.ll, C_PATH, 3.2); shadowText(`${q.wind}`, c.x + 8 * u, c.y - 8 * u, C_PATH, 11); });
     }
     if (sh.prepo) {
-      if (fg.zoneR > 0) {
-        const c = toC(fg.cur.ll); g.save(); g.strokeStyle = C_PREPO; g.lineWidth = 2.2 * u; g.setLineDash([6 * u, 6 * u]);
-        g.beginPath(); g.arc(c.x, c.y, fg.zoneR * pxPerM(fg.cur.ll), 0, 2 * Math.PI); g.stroke(); g.restore();
+      if (fg.seg) { // même dessin qu'à l'écran, trait plus épais
+        const a2 = toC(fg.seg[0]), b2 = toC(fg.seg[1]); g.save(); g.lineCap = 'round';
+        g.beginPath(); g.moveTo(a2.x, a2.y); g.lineTo(b2.x, b2.y); g.strokeStyle = 'rgba(0,0,0,.5)'; g.lineWidth = 6 * u; g.stroke();
+        g.strokeStyle = C_PREPO; g.lineWidth = 3 * u; g.stroke(); g.restore();
       }
       const c = dot(fg.cur.ll, C_PREPO, 8.5);
       shadowText(`${Math.round(fg.cur.h)} m`, c.x + 14 * u, c.y, C_PREPO, 15);
@@ -1009,13 +1076,13 @@ async function renderPdfCanvas() {
   tx(`${current.name}`, col1, l0, '#fff', fs * 1.3, true);
   tx(`${new Date().toLocaleDateString('fr-FR')} · secteur de finale ${p.sector}°`, col1, l0 + lh * 1.2, '#bbb');
   if (fg) {
-    tx(`Vent du ${hdg(current.windDir)} (${cardOf(current.windDir)}) · ${fmt1(current.windSpeed)} m/s · finale au ${hdg(finalHeading())}`, col1, l0 + lh * 2.4, C_SECTOR, fs, true);
+    tx(`Vent ${isForced() ? 'forcé' : 'Internet (' + Wind.fmtWhen(Wind.when) + ')'} du ${hdg(finalHeading())} (${cardOf(finalHeading())}) · ${fmt1(windSpd())} m/s · finale au ${hdg(finalHeading())}`, col1, l0 + lh * 2.4, C_SECTOR, fs, true);
     tx(`Prépo ${current.side === 'D' ? 'à droite' : 'à gauche'} : ${r0(fg.cur.d)} m prof. · ${r0(fg.cur.s)} m déport · ${r0(fg.cur.h)} m haut.`, col1, l0 + lh * 3.4, C_PREPO, fs, true);
   }
   [
     `Prépo vent nul : ${p.d0} m prof. · ${p.s0} m déport · ${p.h0} m haut.`,
     `Prépo vent max (${p.vmax} m/s) : ${p.dM} m prof. · ${p.sM} m déport · ${p.hM} m haut.`,
-    (+p.zoneFrac > 0) ? `Zone de prépo : largeur du secteur à ${fmt1(+p.zoneFrac)} de la longueur` : 'Prépo : point',
+    (+p.zoneFrac > 0) ? `Prépo : segment de ${r0(fg ? fg.segLen : 0)} m = largeur du secteur à ${fmt1(+p.zoneFrac)} × distance de la prépo` : 'Prépo : point',
     `Chemin jaune : prépos de 0 à ${p.vmax} m/s (chiffres = vent en m/s)`
   ].forEach((s2, i) => tx(s2, col2, l0 + i * lh, '#eee'));
   tx(`${BASEMAPS[basemap].attr} · prepo-PA v${VERSION}`, W - 20 * u, H - 10 * u, '#888', 8, false, 'right');
@@ -1025,7 +1092,7 @@ async function renderPdfCanvas() {
 
 let pdfFile = null;
 $('btnPdf').addEventListener('click', async () => {
-  if (!hasTarget() || !hasWind()) return toast('Place d\'abord la cible et règle le vent');
+  if (!hasTarget() || !hasWind()) return toast('Place d\'abord la cible (et il faut un vent : bouton 🌬)');
   const b = $('btnPdf'); b.disabled = true; const old = b.textContent; b.textContent = 'Préparation du PDF…';
   try {
     await loadJsPdf();
