@@ -4,7 +4,7 @@ window.addEventListener('error', e => {
   const t = document.getElementById('toast');
   if (t) { t.textContent = 'Erreur : ' + (e.message || 'inconnue') + ' — ferme et rouvre l\'appli'; t.classList.remove('hidden'); }
 });
-const VERSION = '0.5.1';
+const VERSION = '0.6.0';
 const APP_ID = 'pa';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -73,7 +73,12 @@ function persist() {
   }
 }
 
-const hdg = h => String(Math.round(((h % 360) + 360) % 360)).padStart(3, '0') + '°';
+// Déclinaison magnétique (WMM2025) au point de la zone : tous les caps affichés ou saisis sont magnétiques, la géométrie reste en vrai
+let _decl = { k: null, v: 0 };
+function declAt(c) { if (!c) return 0; const k = c.lat.toFixed(2) + ',' + c.lng.toFixed(2); if (_decl.k !== k) { let v = 0; try { v = magDeclination(c.lat, c.lng, new Date()); } catch (e) {} _decl = { k, v }; } return _decl.v; }
+function declHere() { return declAt(current && current.target ? current.target : current && current.center); }
+const magOf = h => ((Math.round(h - declHere()) % 360) + 360) % 360;
+const hdg = h => String(magOf(h)).padStart(3, '0') + '° M';
 function cardOf(h) { h = ((h % 360) + 360) % 360; if (h >= 315 || h <= 45) return 'N'; if (h >= 135 && h <= 225) return 'S'; return h < 180 ? 'E' : 'O'; }
 const fmt1 = v => (Math.round(v * 10) / 10).toString().replace('.', ',');
 
@@ -225,7 +230,7 @@ function degRing(center, radius, color) {
   const mpp = mPerPx(center);
   L.circle(LL(center), { radius, color, weight: 1.5, opacity: .8, fill: false, dashArray: '4 6', interactive: false }).addTo(grads);
   const degs = Geo.degTicks(radius / mpp);
-  const pt = (deg, d) => { const a = deg * Math.PI / 180; return LL(Geo.fromLocal(center, { x: d * Math.sin(a), y: d * Math.cos(a) })); };
+  const dc = declHere(), pt = (deg, d) => { const a = (deg + dc) * Math.PI / 180; return LL(Geo.fromLocal(center, { x: d * Math.sin(a), y: d * Math.cos(a) })); }; // degrés magnétiques
   const segs = [];
   degs.forEach(deg => {
     segs.push([pt(deg, radius), pt(deg, radius - 10 * mpp)]);
@@ -409,13 +414,13 @@ $('qTicks').addEventListener('click', () => quick(() => { current.params.ticks =
 
 // ---------- Vent du jour : direction (d'où il vient) et force, réglables sur la carte ----------
 function syncWind() {
-  if (document.activeElement !== $('w_dir')) $('w_dir').value = hasWind() ? Math.round(current.windDir) : '';
+  if (document.activeElement !== $('w_dir')) $('w_dir').value = hasWind() ? magOf(current.windDir) : '';
   if (document.activeElement !== $('w_spd')) $('w_spd').value = fmt1(current.windSpeed || 0);
   $('windInfo').textContent = hasWind() ? `Finale au ${hdg(finalHeading())} (${cardOf(finalHeading())}), face au vent` : 'Indique d\'où vient le vent (en degrés).';
 }
 function openWind() { $('windBox').classList.remove('hidden'); syncWind(); }
 function setWind(dir, spd) {
-  if (dir !== undefined && !isNaN(dir)) current.windDir = ((Math.round(dir) % 360) + 360) % 360;
+  if (dir !== undefined && !isNaN(dir)) current.windDir = ((dir % 360) + 360) % 360; // pas d'arrondi ici : la saisie magnétique doit se relire à l'identique
   if (spd !== undefined && !isNaN(spd)) current.windSpeed = Math.max(0, Math.round(spd * 10) / 10);
   persist(); syncWind(); redraw();
 }
@@ -424,7 +429,7 @@ $('windOk').addEventListener('click', () => { $('windBox').classList.add('hidden
 document.querySelectorAll('[data-wdir]').forEach(b => b.addEventListener('click', () => setWind((hasWind() ? current.windDir : 0) + +b.dataset.wdir)));
 document.querySelectorAll('[data-wspd]').forEach(b => b.addEventListener('click', () => setWind(undefined, (current.windSpeed || 0) + +b.dataset.wspd)));
 const numIn = el => parseFloat(String(el.value).replace(',', '.'));
-$('w_dir').addEventListener('change', e => setWind(numIn(e.target)));
+$('w_dir').addEventListener('change', e => { const v = numIn(e.target); if (!isNaN(v)) setWind(v + declHere()); }); // saisie en magnétique, gardée en vrai
 $('w_spd').addEventListener('change', e => setWind(undefined, numIn(e.target)));
 ['w_dir', 'w_spd'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') e.target.blur(); }));
 
@@ -942,8 +947,8 @@ async function renderPdfCanvas() {
       const c = toC(current.target), Rr = Math.max(25, fg.R * 0.45) * pxPerM(current.target);
       g.save(); g.strokeStyle = '#fff'; g.globalAlpha = .8; g.lineWidth = 1.4 * u; g.setLineDash([4 * u, 6 * u]);
       g.beginPath(); g.arc(c.x, c.y, Rr, 0, 2 * Math.PI); g.stroke(); g.setLineDash([]); g.globalAlpha = 1;
-      Geo.degTicks(Rr / u, 40).forEach(deg => {
-        const a = pageAngle(deg), l = 11 * u;
+      Geo.degTicks(Rr / u, 40).forEach(deg => { // degrés magnétiques
+        const a = pageAngle(deg + declHere()), l = 11 * u;
         g.beginPath(); g.moveTo(c.x + Rr * Math.sin(a), c.y - Rr * Math.cos(a)); g.lineTo(c.x + (Rr - l) * Math.sin(a), c.y - (Rr - l) * Math.cos(a)); g.stroke();
         shadowText(`${deg}°`, c.x + (Rr + 16 * u) * Math.sin(a), c.y - (Rr + 16 * u) * Math.cos(a), '#fff', 11, 'center');
       });

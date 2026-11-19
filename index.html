@@ -12,7 +12,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>prepo-PA · précision d’atterrissage</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.5.1">
+<link rel="stylesheet" href="style.css?v=0.6.0">
 </head>
 <body>
 <div id="map"></div>
@@ -43,7 +43,7 @@
 </nav>
 
 <div id="windBox" class="hidden">
-  <div class="wrow"><label>Vent : d'où il vient (°)</label>
+  <div class="wrow"><label>Vent : d'où il vient (° magnétiques)</label>
     <div class="stepper"><button data-wdir="-10">−10</button><button data-wdir="-5">−5</button><input id="w_dir" inputmode="decimal"><button data-wdir="5">+5</button><button data-wdir="10">+10</button></div></div>
   <div class="wrow"><label>Force (m/s)</label>
     <div class="stepper"><button data-wspd="-1">−1</button><button data-wspd="-0.5">−½</button><input id="w_spd" inputmode="decimal"><button data-wspd="0.5">+½</button><button data-wspd="1">+1</button></div></div>
@@ -179,11 +179,12 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=0.5.1"></script>
-<script src="vendor/leaflet-rotate.js?v=0.5.1"></script>
-<script src="geo.js?v=0.5.1"></script>
-<script src="clubs.js?v=0.5.1"></script>
-<script src="app.js?v=0.5.1"></script>
-<script src="photo.js?v=0.5.1"></script>
+<script src="vendor/leaflet.js?v=0.6.0"></script>
+<script src="vendor/leaflet-rotate.js?v=0.6.0"></script>
+<script src="geo.js?v=0.6.0"></script>
+<script src="wmm.js?v=0.6.0"></script>
+<script src="clubs.js?v=0.6.0"></script>
+<script src="app.js?v=0.6.0"></script>
+<script src="photo.js?v=0.6.0"></script>
 </body>
 </html>
