@@ -4,8 +4,13 @@ window.addEventListener('error', e => {
   const t = document.getElementById('toast');
   if (t) { t.textContent = 'Erreur : ' + (e.message || 'inconnue') + ' — ferme et rouvre l\'appli'; t.classList.remove('hidden'); }
 });
-const VERSION = '0.2.0';
-const TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+const VERSION = '0.3.0';
+const APP_ID = 'pa';
+// Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
+const BASEMAPS = {
+  esri: { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr: 'Imagerie © Esri, Maxar, Earthstar Geographics', maxNative: 19 },
+  ign: { url: 'https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}', attr: 'Photos aériennes © IGN – Géoplateforme', maxNative: 19 }
+};
 const TILE_CACHE = 'pa-tiles-v1';
 // Réglages de la manœuvre (communs à toutes les zones) : secteur de finale, vent max, prépo par vent nul et au vent max
 const DEFAULT_PARAMS = {
@@ -127,10 +132,20 @@ function figurePoints() {
 const map = L.map('map', { zoomControl: false, maxZoom: 22, zoomSnap: 0.25, attributionControl: true,
   rotate: true, touchRotate: true, bearing: current.bearing || 0, rotateControl: false, touchPitch: false, pitchDrag: false, shiftKeyRotate: true })
   .setView([current.center.lat, current.center.lng], current.zoom);
-L.tileLayer(TILE_URL, {
-  maxNativeZoom: 19, maxZoom: 22, crossOrigin: 'anonymous',
-  attribution: 'Imagerie © Esri, Maxar, Earthstar Geographics'
-}).addTo(map);
+let basemap = (store.get('pa.basemap', 'esri') in BASEMAPS) ? store.get('pa.basemap', 'esri') : 'esri';
+let baseLayer = null, tileFails = 0;
+function setBasemap(k, msg) {
+  basemap = BASEMAPS[k] ? k : 'esri'; store.set('pa.basemap', basemap);
+  if (baseLayer) map.removeLayer(baseLayer);
+  const B = BASEMAPS[basemap]; tileFails = 0;
+  baseLayer = L.tileLayer(B.url, { maxNativeZoom: B.maxNative, maxZoom: 22, crossOrigin: 'anonymous', attribution: B.attr }).addTo(map);
+  baseLayer.on('tileerror', () => { if (++tileFails === 12 && basemap === 'ign') toast('Photos IGN indisponibles ici (hors France ou pas de réseau) : repasse sur « Satellite »'); });
+  $('bmEsri').classList.toggle('on', basemap === 'esri'); $('bmIgn').classList.toggle('on', basemap === 'ign');
+  if (msg) toast(basemap === 'ign' ? 'Fond : photos aériennes IGN (France)' : 'Fond : satellite Esri (monde)');
+}
+setBasemap(basemap);
+$('bmEsri').addEventListener('click', () => setBasemap('esri', true));
+$('bmIgn').addEventListener('click', () => setBasemap('ign', true));
 L.control.zoom({ position: 'bottomright' }).addTo(map);
 L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(map);
 map.on('moveend', () => { current.center = map.getCenter(); current.zoom = map.getZoom(); store.set('pa.current', current); });
@@ -166,6 +181,7 @@ const mPerPx = ll => 40075016.686 * Math.cos(ll.lat * Math.PI / 180) / Math.pow(
 
 function draw() {
   fig.clearLayers(); grads.clearLayers();
+  if ((typeof Photo !== 'undefined')) Photo.sync();
   updateInfo(); syncQuick(); syncPlaceBtn();
   if (!hasTarget()) {
     if (placing) placeBanner(); else setBanner('Pour commencer : ☰ → ＋ Nouvelle zone, puis place la cible.');
@@ -485,6 +501,7 @@ function measureClick(p) {
 
 map.on('click', e => {
   if (Date.now() < suppressClickUntil) return; // fin d'un déplacement de point : pas un appui
+  if ((typeof Photo !== 'undefined') && Photo.onMapClick(e)) return; // calage d'une photo aérienne en cours
   if (!placing && meas.active) { measureClick({ lat: e.latlng.lat, lng: e.latlng.lng }); return; }
   if (!placing) return;
   const p = { lat: e.latlng.lat, lng: e.latlng.lng }, k = placing;
@@ -605,7 +622,7 @@ function renderZones() {
     };
     const del = document.createElement('button'); del.textContent = '🗑'; del.onclick = async () => {
       if (!(await ask(`Supprimer « ${z.name} » ?`))) return;
-      zones = zones.filter(x => x.id !== z.id); store.set('pa.zones', zones);
+      zones = zones.filter(x => x.id !== z.id); store.set('pa.zones', zones); if ((typeof Photo !== 'undefined')) Photo.remove(z.id);
       if (current.id === z.id) { // la zone affichée disparaît : carte vide, au même endroit
         current = newZone(map.getCenter()); applyProfile(current); current.zoom = map.getZoom();
         resetMarkers(); placing = null; persist(); fillInputs(); redraw();
@@ -741,7 +758,7 @@ $('btnAxisUp').addEventListener('click', () => {
 $('btnFit').addEventListener('click', () => { if (hasTarget()) fitFigure(); else toast('Place d\'abord la cible'); });
 
 // ---------- Images satellite (cache commun carte / hors-ligne / PDF) ----------
-const tileUrl = (z, x, y) => TILE_URL.replace('{z}', z).replace('{x}', x).replace('{y}', y);
+const tileUrl = (z, x, y, src) => BASEMAPS[src || basemap].url.replace('{z}', z).replace('{x}', x).replace('{y}', y);
 async function getTileBlob(url) {
   // Réponse lisible (CORS) obligatoire pour pouvoir dessiner l'image dans le PDF
   if ('caches' in window) {
@@ -754,32 +771,32 @@ async function getTileBlob(url) {
   }
   const r = await fetch(url, { mode: 'cors' }); if (!r.ok) throw new Error('tuile'); return r.blob();
 }
-function tilesAround(center, radiusM, zmin, zmax) {
+function tilesAround(center, radiusM, zmin, zmax, src) {
   const list = [];
   for (let z = zmin; z <= zmax; z++) {
     const n = Math.pow(2, z);
     const xt = lng => Math.floor((lng + 180) / 360 * n);
     const yt = lat => { const r = lat * Math.PI / 180; return Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n); };
     const nw = Geo.fromLocal(center, { x: -radiusM, y: radiusM }), se = Geo.fromLocal(center, { x: radiusM, y: -radiusM });
-    for (let x = xt(nw.lng); x <= xt(se.lng); x++) for (let y = yt(nw.lat); y <= yt(se.lat); y++) list.push(tileUrl(z, x, y));
+    for (let x = xt(nw.lng); x <= xt(se.lng); x++) for (let y = yt(nw.lat); y <= yt(se.lat); y++) list.push(tileUrl(z, x, y, src));
   }
   return list;
 }
 // Photos gardées hors-ligne pour une zone : autour de la cible (700 m en détail, 2,5 km en large)
-function offlineTiles(z) {
+function offlineTiles(z, src) {
   const center = z.target || z.center;
-  return [...new Set(tilesAround(center, 700, 12, 19).concat(tilesAround(center, 2500, 12, 16)))];
+  return [...new Set(tilesAround(center, 700, 12, 19, src).concat(tilesAround(center, 2500, 12, 16, src)))];
 }
 // Retirer le hors-ligne d'une zone : on efface ses photos, sauf celles qui servent à une autre zone gardée hors-ligne
 async function removeOffline(id) {
   const z = id === current.id ? current : zones.find(x => x.id === id); if (!z) return;
   if (!(await ask(`Supprimer les photos hors-ligne de « ${z.name} » ? La zone reste enregistrée, la carte ne s'affichera plus qu'avec du réseau.`))) return;
   const keep = new Set();
-  zones.filter(x => x.id !== id && x.offline).forEach(x => offlineTiles(x).forEach(u => keep.add(u)));
+  zones.filter(x => x.id !== id && x.offline).forEach(x => Object.keys(BASEMAPS).forEach(b => offlineTiles(x, b).forEach(u => keep.add(u))));
   let n = 0;
   if ('caches' in window) {
     const c = await caches.open(TILE_CACHE);
-    for (const u of offlineTiles(z)) if (!keep.has(u) && await c.delete(u)) n++;
+    for (const b of Object.keys(BASEMAPS)) for (const u of offlineTiles(z, b)) if (!keep.has(u) && await c.delete(u)) n++;
   }
   z.offline = null;
   const i = zones.findIndex(x => x.id === id); if (i >= 0) zones[i].offline = null;
@@ -890,6 +907,7 @@ async function renderPdfCanvas() {
   };
   await Promise.all(Array.from({ length: 6 }, run));
   g.restore();
+  if ((typeof Photo !== 'undefined')) { try { await Photo.drawPdf(g, toC); } catch (e) {} }
 
   // ---- Tracé ----
   const u = W / 1000;
@@ -986,7 +1004,7 @@ async function renderPdfCanvas() {
     (+p.zoneFrac > 0) ? `Zone de prépo : largeur du secteur à ${fmt1(+p.zoneFrac)} de la longueur` : 'Prépo : point',
     `Chemin jaune : prépos de 0 à ${p.vmax} m/s (chiffres = vent en m/s)`
   ].forEach((s2, i) => tx(s2, col2, l0 + i * lh, '#eee'));
-  tx(`Imagerie © Esri, Maxar, Earthstar Geographics · prepo-PA v${VERSION}`, W - 20 * u, H - 10 * u, '#888', 8, false, 'right');
+  tx(`${BASEMAPS[basemap].attr} · prepo-PA v${VERSION}`, W - 20 * u, H - 10 * u, '#888', 8, false, 'right');
 
   return { canvas: cv, landscape, fails };
 }
@@ -1060,6 +1078,7 @@ $('importFile').addEventListener('change', async e => {
 $('btnWipe').addEventListener('click', async () => {
   if (!(await ask('Effacer TOUTES les données (zones enregistrées, manœuvre, zone en cours) ? C\'est définitif. Pense à exporter avant si besoin.'))) return;
   ['pa.zones', 'pa.current', 'pa.profile', 'pa.lastParams'].forEach(k => { try { localStorage.removeItem(k); } catch (er) {} });
+  if ((typeof Photo !== 'undefined')) await Photo.clearAll();
   location.reload();
 });
 
