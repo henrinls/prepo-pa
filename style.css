@@ -118,3 +118,4 @@ button.danger{border-color:#a33;color:#ff8a8a}
 .gate .gsvg{transform:scale(.72)}.gate.lifting .gsvg{transform:scale(1)}
 .sarrow svg{transform:scale(.75)}.sarrow.lifting svg{transform:scale(1)}
 .target span{transform:scale(.7)}.target.lifting span{transform:scale(1)}
+#windInfo{min-height:2.7em} /* la fenêtre ne change pas de hauteur quand le texte change : les boutons ne bougent pas sous le doigt */
