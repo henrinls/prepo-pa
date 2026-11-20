@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 const APP_ID = 'pa';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -41,6 +41,8 @@ const clone = o => JSON.parse(JSON.stringify(o));
 const SHOW_DEFAULT = { sector: true, prepo: true, path: true, reperes: true };
 function upgrade(z) {
   if (!z) return z;
+  if (typeof z.elevAuto !== 'number') z.elevAuto = null;     // altitude du terrain donnée par la prévision (m)
+  if (typeof z.elevManual !== 'number') z.elevManual = null; // altitude corrigée à la main (m), sinon auto
   z.params = Object.assign({}, DEFAULT_PARAMS, z.params || {});
   z.show = Object.assign({}, SHOW_DEFAULT, typeof z.show === 'object' ? z.show : {});
   z.reperes = Array.isArray(z.reperes) ? z.reperes : [];
@@ -550,6 +552,7 @@ function fillInputs(only) {
   if (only) return;
   syncQuick(); syncForced();
   $('zoneName').textContent = current.name + (current.id ? '' : ' (non enregistrée)');
+  if (typeof syncElev === 'function' && Wind) { syncElev(); Wind.ensure(false); }
 }
 numFields.forEach(k => {
   $('p_' + k).addEventListener('input', e => {
@@ -592,8 +595,21 @@ $('qTicks').addEventListener('click', () => quick(() => { current.params.ticks =
 Wind = WindPanel.make({
   app: 'pa', decl: () => declHere(),
   where: () => { const c = current.target || current.center; return c ? { id: current.id, lat: c.lat, lng: c.lng } : null; },
-  onChange: () => { syncForced(); syncQuick(); redraw(); }, onToggle: () => { syncForced(); syncQuick(); }
+  onChange: () => { syncForced(); syncQuick(); syncElev(); redraw(); }, onToggle: () => { syncForced(); syncQuick(); }
 });
+// ---------- Altitude du terrain (20 nov. 2026, même endroit dans les 3 applis : onglet Zones) ----------
+// Automatique = altitude donnée par la prévision Open-Meteo au point de la zone ; corrigeable à la main (vide = auto)
+const ftOf = m => Math.round(m / 0.3048);
+function syncElev() {
+  const e = Wind && Wind.elev ? Wind.elev() : null;
+  if (e != null && current.elevAuto !== e) { current.elevAuto = e; persist(); }
+  const a = typeof current.elevAuto === 'number' ? `automatique : ${current.elevAuto} m (${ftOf(current.elevAuto)} ft)` : 'automatique : inconnue (pas encore de prévision)';
+  const m = typeof current.elevManual === 'number' ? ` · retenue : ${current.elevManual} m (${ftOf(current.elevManual)} ft)` : '';
+  $('elevAuto').textContent = a + m;
+  if (document.activeElement !== $('z_elev')) $('z_elev').value = typeof current.elevManual === 'number' ? current.elevManual : '';
+}
+$('z_elev').addEventListener('change', e => { const raw = e.target.value.trim(), v = parseFloat(raw.replace(',', '.')); current.elevManual = raw === '' || isNaN(v) ? null : Math.round(v); persist(); syncElev(); });
+
 const numIn = el => parseFloat(String(el.value).replace(',', '.'));
 function syncForced() {
   const w = windNow(), n = netWind(), fd = typeof current.forceDir === 'number', fs = typeof current.forceSpd === 'number';
