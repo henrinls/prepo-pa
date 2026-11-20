@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '1.3.1';
+const VERSION = '1.4.0';
 const APP_ID = 'pa';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -22,7 +22,7 @@ const TILE_CACHE = 'pa-tiles-v1';
 const DEFAULT_PARAMS = {
   sector: 30, vmax: 7,
   // Valeurs par défaut = manœuvre de Laura (export du 20 nov. 2026, validée par elle) — v1.0.0
-  d0: 120, s0: 100, h0: 100,    // prépo par vent nul : profondeur, déport latéral, hauteur (m)
+  d0: 120, s0: 100, h0: 160,    // prépo par vent nul (hauteur 160 m : correction d'Henri, 20 nov. 2026) : profondeur, déport latéral, hauteur (m)
   dM: -30, sM: 30, hM: 30,      // prépo au vent max (profondeur négative = de l'autre côté de la cible)
   zoneFrac: 0.5,                // prépo = segment perpendiculaire au vent, long comme la largeur du secteur à cette fraction de la distance de la prépo (0 = point)
   ticks: true
@@ -541,7 +541,9 @@ function freeRect() {
   // au-dessus de la colonne de gauche : la figure peut monter jusqu'au bas des boutons ronds N/AXE/⤢/⌖)
   let t = m;
   document.querySelectorAll('#top button').forEach(el => { const q = el.getBoundingClientRect(); if (q.width && q.right > l && q.left < r) t = Math.max(t, q.bottom + m); });
-  return { l, t, r, b: H - 22 };
+  let b = H - 22; // bas : au-dessus du curseur de transparence s'il est sous la zone libre
+  const fb = $('fadeBox') && $('fadeBox').getBoundingClientRect(); if (fb && fb.width && Math.min(fb.right, r) - Math.max(fb.left, l) > 10) b = Math.min(b, fb.top - m);
+  return { l, t, r, b };
 }
 // Étiquettes (degrés, chiffres, hauteurs…) : leur débord en pixels au-delà de la figure est réservé en plus,
 // sinon le cadrage serré les cache sous les boutons (« 180° » devenu « 80° », 20 nov. 2026)
@@ -818,6 +820,39 @@ map.on('zoomend', redraw);
   TG.disable(); TG.enable(); // ré-abonne les écouteurs aux versions modifiées
 })();
 // Rotation du téléphone : Leaflet doit relire la taille de l'écran
+// ---------- Transparence du fond de carte (20 nov. 2026, commun aux 3 applis) ----------
+// Curseur horizontal (à gauche du zoom) : 100 = carte nette, 0 = fond uni ; ☀ : le fond uni est noir ou blanc. Même rendu dans le PDF.
+const fade = Object.assign({ v: 100, bg: 'black' }, store.get('pa.fade', {}));
+function applyFade() {
+  const op = Math.max(0, Math.min(100, +fade.v || 0)) / 100, col = fade.bg === 'white' ? '#fff' : '#000';
+  ['tilePane', 'photoPane'].forEach(n => { const p = map.getPane(n); if (p) p.style.opacity = op; });
+  map.getContainer().style.background = op < 1 ? col : '';
+  $('fadeBg').className = fade.bg; $('fadeRange').value = fade.v; placeFade();
+}
+function placeFade() {
+  // portrait : en bas, juste à gauche des boutons + / − du zoom, aligné sur leur bas ;
+  // paysage : sous la colonne de boutons de gauche (la hauteur est rare en paysage, le curseur ne doit pas couper la figure)
+  const z = document.querySelector('.leaflet-control-zoom'), b = $('fadeBox'); if (!z || !b) return;
+  if (innerWidth > innerHeight) {
+    const q = $('quick').getBoundingClientRect(), sc = document.querySelector('.leaflet-control-scale');
+    const bot = sc ? sc.getBoundingClientRect().top - 6 : innerHeight - 30;
+    b.style.left = `${Math.round(q.left)}px`; b.style.top = `${Math.round(bot - b.offsetHeight)}px`; return;
+  }
+  const r = z.getBoundingClientRect(); if (!r.width) return;
+  b.style.left = `${Math.round(r.left - 8 - b.offsetWidth)}px`; b.style.top = `${Math.round(r.bottom - b.offsetHeight)}px`;
+}
+window.addEventListener('resize', () => setTimeout(placeFade, 450));
+$('fadeRange').addEventListener('input', e => { fade.v = +e.target.value; applyFade(); store.set('pa.fade', fade); });
+$('fadeBg').addEventListener('click', () => {
+  fade.bg = fade.bg === 'white' ? 'black' : 'white'; if (fade.v >= 100) fade.v = 60; // un appui sur ☀ éclaircit ou fonce tout de suite
+  applyFade(); store.set('pa.fade', fade); toast(fade.bg === 'white' ? 'Fond vers le blanc' : 'Fond vers le noir');
+});
+function pdfFade(g, W, H) { // même voile que l'écran sur le fond du PDF
+  const op = Math.max(0, Math.min(100, +fade.v || 0)) / 100; if (op >= 1) return;
+  g.save(); g.globalAlpha = 1 - op; g.fillStyle = fade.bg === 'white' ? '#fff' : '#000'; g.fillRect(0, 0, W, H); g.restore();
+}
+applyFade();
+
 // Rotation portrait ↔ paysage : recadrage automatique (20 nov. 2026 : en paysage, Henri gardait le cadrage du portrait)
 let lastLand = innerWidth > innerHeight;
 ['resize', 'orientationchange'].forEach(ev => window.addEventListener(ev, () => setTimeout(() => {
@@ -1198,6 +1233,7 @@ async function renderPdfCanvas() {
   await Promise.all(Array.from({ length: 6 }, run));
   g.restore();
   if ((typeof Photo !== 'undefined')) { try { await Photo.drawPdf(g, toC); } catch (e) {} }
+  pdfFade(g, W, H); // transparence du fond, comme à l'écran
 
   // ---- Tracé ----
   const u = W / 1000;
