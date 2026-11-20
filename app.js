@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 const APP_ID = 'pa';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -193,7 +193,7 @@ map.on('rotate', () => { syncCompass(); current.bearing = map.getBearing(); clea
 
 const fig = L.layerGroup().addTo(map);
 const grads = L.layerGroup().addTo(map);
-let placing = null, posMarker = null; // placing : null | 'T' (cible) | 'R' (repère)
+let placing = null, posMarker = null, repAddOpen = false; // placing : null | 'T' (cible) | 'R' (repère)
 let markerT = null; const repMarkers = {};
 
 function dotIcon(color, size, label, cls) {
@@ -623,22 +623,43 @@ Wind.ensure(false);
 function syncPlaceBtn() {
   $('btnPlaceT').classList.toggle('on', placing === 'T');
   $('btnPlaceR').classList.toggle('on', placing === 'R');
+  const open = placing === 'R' && repAddOpen;
+  if (!open) repAddOpen = false;
+  $('qRepAdd').classList.toggle('on', open); $('repAddPop').classList.toggle('hidden', !open);
+  if (open) { // sous-boutons à droite du ＋, l'un sous l'autre (📡 à hauteur du ＋, mesure dessous)
+    const r = $('qRepAdd').getBoundingClientRect(), pop = $('repAddPop');
+    pop.style.left = `${Math.round(r.right + 6)}px`; pop.style.top = `${Math.round(r.top + r.height / 2 - 22)}px`;
+    $('qRepMeas').classList.toggle('off', !meas.b);
+  }
 }
-function placeBanner() { setBanner(!placing ? null : placing === 'T' ? 'Touche la carte pour placer la cible.' : 'Touche la carte pour placer le repère.'); }
+// ＋ des repères (20 nov. 2026, demande de Laura) : un appui ouvre le mode « nouveau repère » :
+// toucher la carte = repère là ; 📡 = repère à ma position ; mesure = repère au 2e point de la mesure affichée. 2e appui sur ＋ = annuler.
+$('qRepAdd').addEventListener('click', () => {
+  if (placing === 'R' && repAddOpen) { placing = null; repAddOpen = false; placeBanner(); syncPlaceBtn(); return; }
+  if (!hasTarget()) return toast('Place d\'abord la cible');
+  placing = 'R'; repAddOpen = true; placeBanner(); syncPlaceBtn(); // la mesure reste affichée
+});
+function endRepAdd() { placing = null; repAddOpen = false; placeBanner(); syncPlaceBtn(); }
+$('qRepGps').addEventListener('click', () => gpsHere($('qRepGps'), p => { endRepAdd(); addRepere(p); }));
+$('qRepMeas').addEventListener('click', () => {
+  if (!meas.b) return toast('Pas de mesure : fais d\'abord une mesure avec 📏 (2 points)');
+  const p = { lat: meas.b.lat, lng: meas.b.lng }; endRepAdd(); addRepere(p);
+});
+function placeBanner() { setBanner(!placing ? null : placing === 'T' ? 'Touche la carte pour placer la cible.' : repAddOpen ? 'Nouveau repère : touche la carte, ou un bouton à côté du ＋ (ma position, 2e point de la mesure).' : 'Touche la carte pour placer le repère.'); }
 ['T', 'R'].forEach(k => $('btnPlace' + k).addEventListener('click', () => {
   if (placing === k) { placing = null; placeBanner(); syncPlaceBtn(); return; } // 2e appui : annule
   if (k === 'R' && !hasTarget()) return toast('Place d\'abord la cible');
-  stopMeasure(); placing = k; syncPlaceBtn(); placeBanner(); closeSheet();
+  stopMeasure(); repAddOpen = false; placing = k; syncPlaceBtn(); placeBanner(); closeSheet();
 }));
 function gpsHere(btn, then) {
   if (!navigator.geolocation) return toast('Géolocalisation indisponible');
-  const old = btn.textContent; btn.textContent = '📡 Position…'; btn.disabled = true;
+  const old = btn.innerHTML; btn.textContent = btn.id === 'qRepGps' ? '…' : '📡 Position…'; btn.disabled = true;
   navigator.geolocation.getCurrentPosition(pos => {
-    btn.textContent = old; btn.disabled = false;
+    btn.innerHTML = old; btn.disabled = false;
     const acc = Math.round(pos.coords.accuracy || 0);
     then({ lat: pos.coords.latitude, lng: pos.coords.longitude });
     if (acc) setTimeout(() => toast(`Position prise (précision GPS ± ${acc} m)`), 2900);
-  }, () => { btn.textContent = old; btn.disabled = false; toast('Position refusée ou indisponible'); }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+  }, () => { btn.innerHTML = old; btn.disabled = false; toast('Position refusée ou indisponible'); }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
 }
 $('btnGpsT').addEventListener('click', () => gpsHere($('btnGpsT'), p => { closeSheet(); map.setView(LL(p), Math.max(map.getZoom(), 17)); setTarget(p); }));
 $('btnGpsR').addEventListener('click', () => { if (!hasTarget()) return toast('Place d\'abord la cible'); gpsHere($('btnGpsR'), p => { closeSheet(); addRepere(p); }); });
@@ -696,7 +717,7 @@ map.on('click', e => {
   if (!placing && meas.active) { measureClick({ lat: e.latlng.lat, lng: e.latlng.lng }); return; }
   if (!placing) return;
   const p = { lat: e.latlng.lat, lng: e.latlng.lng }, k = placing;
-  placing = null; placeBanner(); syncPlaceBtn();
+  placing = null; repAddOpen = false; placeBanner(); syncPlaceBtn();
   if (k === 'T') setTarget(p); else addRepere(p);
 });
 
