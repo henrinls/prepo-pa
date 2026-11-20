@@ -177,3 +177,6 @@ button,input,select,label,a{touch-action:manipulation}
 #repList .zn{flex:1;cursor:pointer;padding:8px 0}
 #repList .rmk{color:#fff;font-size:13px}
 #repList .rbtn{padding:4px 9px;min-height:0;font-size:16px}
+
+/* Outil de mesure actif : les autres points et traits ne captent plus le doigt (on mesure jusque sur eux) */
+.leaflet-container.measuring .leaflet-interactive:not(.measpt){pointer-events:none!important}
