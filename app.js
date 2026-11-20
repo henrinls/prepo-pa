@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.8.3';
+const VERSION = '0.8.4';
 const APP_ID = 'pa';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -222,7 +222,7 @@ function draw() {
     // Secteur de finale : sommet sur la cible, ouvert côté sous le vent, jusqu'à la prépo affichée
     syncSector(f, sh); // secteur persistant (appui long + tourner = forcer la direction du vent)
     // Chemin des prépos de 0 au vent max, gradué tous les 1 m/s
-    if (sh.path && sh.prepo) {
+    if (sh.path) { // chemin 0 → vent max : bouton 0→7, indépendant du bouton Prépo
       const pl = f.path.map(q => LL(q.ll));
       L.polyline(pl, { color: '#000', weight: 3.5, opacity: .45, interactive: false }).addTo(fig);
       L.polyline(pl, { color: C_PATH, weight: 1.6, interactive: false }).addTo(fig);
@@ -1032,7 +1032,7 @@ async function renderPdfCanvas() {
       fg.arc.forEach(ll => { const q = toC(ll); g.lineTo(q.x, q.y); }); g.closePath();
       g.strokeStyle = C_SECTOR; g.lineWidth = 2.4 * u; g.stroke(); g.restore();
     }
-    if (sh.path && sh.prepo) {
+    if (sh.path) { // chemin 0 → vent max : bouton 0→7, indépendant du bouton Prépo
       g.save(); g.beginPath(); fg.path.forEach((q, i) => { const c = toC(q.ll); i ? g.lineTo(c.x, c.y) : g.moveTo(c.x, c.y); });
       g.strokeStyle = 'rgba(0,0,0,.5)'; g.lineWidth = 5 * u; g.stroke(); g.strokeStyle = C_PATH; g.lineWidth = 2.6 * u; g.stroke(); g.restore();
       fg.path.forEach(q => { const c = dot(q.ll, C_PATH, 3.2); shadowText(`${q.wind}`, c.x + 8 * u, c.y - 8 * u, C_PATH, 11); });
