@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.12.0';
+const VERSION = '0.12.1';
 const APP_ID = 'pa';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -246,7 +246,12 @@ function draw() {
         const lines = [f.seg.map(LL), g.ticks[0].map(back), g.ticks[1].map(back)];
         L.polyline(lines, { color: '#000', weight: 4, opacity: .45, interactive: false }).addTo(fig);
         L.polyline(lines, { color: C_PREPO, weight: 2, interactive: false }).addTo(fig);
-        L.marker(back(g.lab), { interactive: false, icon: L.divIcon({ className: 'seglbl ' + g.align, iconSize: [0, 0], html: `<span style="color:${C_PREPO}">${Math.round(f.cur.h)} m</span>` }) }).addTo(fig);
+        const txt = `${Math.round(f.cur.h)} m`, toP = ll => map.latLngToContainerPoint(LL(ll)), cr = map.getContainer().getBoundingClientRect();
+        const rects = [...document.querySelectorAll('.glabel span, .plabel span')].map(e => { const r = e.getBoundingClientRect(); return { l: r.left - cr.left, r: r.right - cr.left, t: r.top - cr.top, b: r.bottom - cr.top }; });
+        const T = toP(current.target); rects.push({ l: T.x - 12, r: T.x + 12, t: T.y - 12, b: T.y + 12 });
+        const roseR = current.params.ticks !== false ? T.distanceTo(toP(Geo.fromLocal(current.target, { x: ROSE_R, y: 0 }))) : 0;
+        const pos = pickSegLabel(g, textW(txt, 12) + 4, 16, 5, rects, figLines(f, sh, toP, roseR).concat(g.ticks));
+        L.marker(back(pos), { interactive: false, icon: L.divIcon({ className: 'seglbl c', iconSize: [0, 0], html: `<span style="color:${C_PREPO}">${txt}</span>` }) }).addTo(fig);
       }
 
     }
@@ -295,8 +300,49 @@ function segGeom(seg, toP, frac, gap) {
   const lab = { x: end.x + ox * gap, y: end.y + oy * gap };
   const steep = Math.abs(oy) > Math.abs(ox); // segment plutôt vertical à l'écran : on décale aussi la hauteur au-dessus / au-dessous du bout
   if (steep) lab.y += (oy < 0 ? -1 : 1) * 4;
-  return { ticks: [bar(a), bar(b)], lab, steep, out: { x: ox, y: oy }, align: steep ? 'vert ' + (oy < 0 ? 'up' : 'down') : (ox < 0 ? 'side left' : 'side') };
+  const inner = end === b ? a : b;
+  return { end, inner, mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, tick, ticks: [bar(a), bar(b)], lab, steep, out: { x: ox, y: oy }, align: steep ? 'vert ' + (oy < 0 ? 'up' : 'down') : (ox < 0 ? 'side left' : 'side') };
 }
+// Place de la hauteur de prépo (20 nov. 2026) : le premier emplacement libre autour du segment — d'abord au-delà du bout
+// extérieur, puis sur les côtés, puis à l'autre bout — sans chevaucher un chiffre (degrés, chemin 0→7, cible) ni un trait
+// (chemin, secteur, bissectrice, rosace, segment). Si tout est pris, l'emplacement le moins encombré.
+const _mcv = document.createElement('canvas').getContext('2d');
+function textW(txt, px) { _mcv.font = `700 ${px}px -apple-system, Helvetica, Arial, sans-serif`; return _mcv.measureText(txt).width; }
+function boxHits(B, rects, lines) {
+  let n = 0;
+  rects.forEach(r => { if (B.l < r.r + 2 && B.r > r.l - 2 && B.t < r.b + 2 && B.b > r.t - 2) n++; });
+  lines.forEach(pl => {
+    for (let i = 1; i < pl.length; i++) {
+      const p = pl[i - 1], q = pl[i], L0 = Math.hypot(q.x - p.x, q.y - p.y), k = Math.max(1, Math.ceil(L0 / 3));
+      for (let j = 0; j <= k; j++) { const x = p.x + (q.x - p.x) * j / k, y = p.y + (q.y - p.y) * j / k; if (x > B.l - 1 && x < B.r + 1 && y > B.t - 1 && y < B.b + 1) { n++; return; } }
+    }
+  });
+  return n;
+}
+function pickSegLabel(sg, w, h, gap, rects, lines) {
+  const o = sg.out, nn = { x: -o.y, y: o.x }, neg = d => ({ x: -d.x, y: -d.y });
+  const sup = d => (Math.abs(d.x) * w + Math.abs(d.y) * h) / 2;
+  const at = (E, d, extra) => ({ x: E.x + d.x * (extra + sup(d)), y: E.y + d.y * (extra + sup(d)) });
+  const cands = [at(sg.end, o, gap), at(sg.end, nn, sg.tick + gap), at(sg.end, neg(nn), sg.tick + gap),
+    at(sg.mid, nn, gap), at(sg.mid, neg(nn), gap), at(sg.inner, neg(o), gap), at(sg.inner, nn, sg.tick + gap), at(sg.inner, neg(nn), sg.tick + gap),
+    at(sg.end, o, gap + 2 * h), at(sg.inner, neg(o), gap + 2 * h)];
+  let best = null, bestN = 1e9;
+  for (const c of cands) {
+    const n = boxHits({ l: c.x - w / 2, r: c.x + w / 2, t: c.y - h / 2, b: c.y + h / 2 }, rects, lines);
+    if (n < bestN) { best = c; bestN = n; if (!n) break; }
+  }
+  return best;
+}
+// Traits déjà dessinés autour de la prépo, en coordonnées écran (carte) ou page (PDF)
+function figLines(f, sh, toP, roseR) {
+  const L0 = [], T = toP(current.target);
+  if (sh.path) L0.push(f.path.map(q => toP(q.ll)));
+  if (sh.sector) { L0.push([T, ...f.arc.map(toP), T]); L0.push(f.axis.map(toP)); }
+  if (roseR) { const c = []; for (let i = 0; i <= 64; i++) { const a = i / 64 * 2 * Math.PI; c.push({ x: T.x + roseR * Math.cos(a), y: T.y + roseR * Math.sin(a) }); } L0.push(c); }
+  if (f.seg) L0.push(f.seg.map(toP));
+  return L0;
+}
+
 // Forcer le vent sur la carte (les gestes passent par longPressDrag, comme pour la cible)
 function roundMag(dirTrue) { return n360(Math.round(n360(dirTrue - declHere())) + declHere()); } // direction ronde en magnétique
 function sectorDrag(poly) {
@@ -1105,10 +1151,17 @@ async function renderPdfCanvas() {
         g.beginPath(); g.moveTo(a2.x, a2.y); g.lineTo(b2.x, b2.y); sg.ticks.forEach(([p1, p2]) => { g.moveTo(p1.x, p1.y); g.lineTo(p2.x, p2.y); });
         g.strokeStyle = 'rgba(0,0,0,.5)'; g.lineWidth = 6 * u; g.stroke();
         g.strokeStyle = C_PREPO; g.lineWidth = 3 * u; g.stroke(); g.restore();
-        const txt = `${Math.round(fg.cur.h)} m`, end = sg.lab;
-        if (sg.steep) shadowText(txt, end.x, end.y + (sg.out.y < 0 ? -1 : 1) * 22 * u, C_PREPO, 15, 'center');
-        else if (sg.out.x < 0) shadowText(txt, end.x - 12 * u, end.y, C_PREPO, 15, 'right');
-        else shadowText(txt, end.x + 12 * u, end.y, C_PREPO, 15, 'left');
+        const txt = `${Math.round(fg.cur.h)} m`, rects = [], T = toC(current.target);
+        rects.push({ l: T.x - 11 * u, r: T.x + 11 * u, t: T.y - 11 * u, b: T.y + 11 * u });
+        if (sh.path) fg.path.forEach(q => { const c = toC(q.ll), w = textW(`${q.wind}`, 11 * u); rects.push({ l: c.x + 8 * u, r: c.x + 8 * u + w, t: c.y - 15 * u, b: c.y - u }); });
+        let roseR = 0;
+        if (current.params.ticks !== false) {
+          roseR = ROSE_R * pxPerM(current.target);
+          Geo.degTicks(roseR / u, 40).forEach(deg => { const a = pageAngle(deg + declHere()), x = T.x + (roseR + 16 * u) * Math.sin(a), y = T.y - (roseR + 16 * u) * Math.cos(a), w = textW(`${deg}°`, 11 * u);
+            rects.push({ l: x - w / 2, r: x + w / 2, t: y - 7 * u, b: y + 7 * u }); });
+        }
+        const pos = pickSegLabel(sg, textW(txt, 15 * u) + 4 * u, 18 * u, 7 * u, rects, figLines(fg, sh, toC, roseR).concat(sg.ticks));
+        shadowText(txt, pos.x, pos.y, C_PREPO, 15, 'center');
       } else {
         const c = dot(fg.cur.ll, C_PREPO, 8.5);
         shadowText(`${Math.round(fg.cur.h)} m`, c.x + 14 * u, c.y, C_PREPO, 15);
