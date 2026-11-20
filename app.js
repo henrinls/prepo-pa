@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.12.4';
+const VERSION = '1.0.0';
 const APP_ID = 'pa';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -21,8 +21,9 @@ const TILE_CACHE = 'pa-tiles-v1';
 // Réglages de la manœuvre (communs à toutes les zones) : secteur de finale, vent max, prépo par vent nul et au vent max
 const DEFAULT_PARAMS = {
   sector: 30, vmax: 7,
-  d0: 250, s0: 80, h0: 300,     // prépo par vent nul : profondeur, déport latéral, hauteur (m)
-  dM: 80, sM: 30, hM: 150,      // prépo au vent max
+  // Valeurs par défaut = manœuvre de Laura (export du 20 nov. 2026, validée par elle) — v1.0.0
+  d0: 120, s0: 100, h0: 100,    // prépo par vent nul : profondeur, déport latéral, hauteur (m)
+  dM: -30, sM: 30, hM: 30,      // prépo au vent max (profondeur négative = de l'autre côté de la cible)
   zoneFrac: 0.5,                // prépo = segment perpendiculaire au vent, long comme la largeur du secteur à cette fraction de la distance de la prépo (0 = point)
   ticks: true
 };
