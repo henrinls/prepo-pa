@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.8.7';
+const VERSION = '0.8.8';
 const APP_ID = 'pa';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -480,6 +480,14 @@ numFields.forEach(k => {
   });
   $('p_' + k).addEventListener('blur', () => fillInputs([k]));
 });
+
+// ± : le clavier décimal de l'iPhone n'a pas de signe moins → bouton qui inverse le signe de la profondeur (prépo de l'autre côté de la cible)
+document.querySelectorAll('.pmBtn').forEach(b => b.addEventListener('click', () => {
+  const k = b.dataset.k, v = -(+current.params[k] || 0);
+  current.params[k] = v; profile[k] = v; store.set('pa.profile', profile);
+  zones.forEach(applyProfile); store.set('pa.zones', zones);
+  persist(); fillInputs([k]); redraw();
+}));
 
 // ---------- Bascules rapides sur la carte ----------
 function syncQuick() {

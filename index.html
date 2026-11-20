@@ -12,7 +12,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>prepo-PA · précision d’atterrissage</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=0.8.7">
+<link rel="stylesheet" href="style.css?v=0.8.8">
 </head>
 <body>
 <div id="map"></div>
@@ -129,18 +129,18 @@
 
     <h3>Prépo par vent nul</h3>
     <div class="grid2">
-      <div><label>Profondeur (m)</label><input id="p_d0" inputmode="decimal"></div>
+      <div><label>Profondeur (m)</label><div class="stepper"><button type="button" class="pmBtn" data-k="d0" aria-label="Changer le signe">±</button><input id="p_d0" inputmode="decimal"></div></div>
       <div><label>Déport latéral (m)</label><input id="p_s0" inputmode="decimal"></div>
       <div><label>Hauteur (m)</label><input id="p_h0" inputmode="decimal"></div>
     </div>
 
     <h3>Prépo au vent max</h3>
     <div class="grid2">
-      <div><label>Profondeur (m)</label><input id="p_dM" inputmode="decimal"></div>
+      <div><label>Profondeur (m)</label><div class="stepper"><button type="button" class="pmBtn" data-k="dM" aria-label="Changer le signe">±</button><input id="p_dM" inputmode="decimal"></div></div>
       <div><label>Déport latéral (m)</label><input id="p_sM" inputmode="decimal"></div>
       <div><label>Hauteur (m)</label><input id="p_hM" inputmode="decimal"></div>
     </div>
-    <p class="hint">Profondeur : distance depuis la cible le long de l'axe du vent. Déport : sur le côté, à droite ou à gauche face à la cible (bouton Prépo D / G). Entre vent nul et vent max, l'appli calcule en ligne droite.</p>
+    <p class="hint">Profondeur : distance depuis la cible le long de l'axe du vent ; négative (bouton ±) = prépo de l'autre côté de la cible, face au vent. Déport : sur le côté, à droite ou à gauche face à la cible (bouton Prépo D / G). Entre vent nul et vent max, l'appli calcule en ligne droite.</p>
 
     <h3>Segment de prépo</h3>
     <div class="grid2">
@@ -185,13 +185,13 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=0.8.7"></script>
-<script src="vendor/leaflet-rotate.js?v=0.8.7"></script>
-<script src="geo.js?v=0.8.7"></script>
-<script src="wmm.js?v=0.8.7"></script>
-<script src="clubs.js?v=0.8.7"></script>
-<script src="wind.js?v=0.8.7"></script>
-<script src="app.js?v=0.8.7"></script>
-<script src="photo.js?v=0.8.7"></script>
+<script src="vendor/leaflet.js?v=0.8.8"></script>
+<script src="vendor/leaflet-rotate.js?v=0.8.8"></script>
+<script src="geo.js?v=0.8.8"></script>
+<script src="wmm.js?v=0.8.8"></script>
+<script src="clubs.js?v=0.8.8"></script>
+<script src="wind.js?v=0.8.8"></script>
+<script src="app.js?v=0.8.8"></script>
+<script src="photo.js?v=0.8.8"></script>
 </body>
 </html>
