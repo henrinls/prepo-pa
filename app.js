@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.8.8';
+const VERSION = '0.9.0';
 const APP_ID = 'pa';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -135,7 +135,10 @@ function figure() {
   // Prépo = segment perpendiculaire à l'axe du vent, centré sur la prépo, long comme la largeur du secteur à zoneFrac × distance de la prépo
   const hl = Math.max(0, +p.zoneFrac || 0) * cur.dist * Math.tan(half * Math.PI / 180), wr = W * Math.PI / 180, rt = { x: Math.cos(wr), y: -Math.sin(wr) };
   const seg = hl > 0.5 ? [Geo.fromLocal(current.target, { x: cur.v.x + rt.x * hl, y: cur.v.y + rt.y * hl }), Geo.fromLocal(current.target, { x: cur.v.x - rt.x * hl, y: cur.v.y - rt.y * hl })] : null;
-  return { cur, R, arc, half, path, seg, segLen: 2 * hl, W };
+  // Bissectrice du secteur : de la cible, dans l'axe du secteur, jusqu'à la distance de la prépo par vent nul
+  const L0 = path[0].dist, br = back * Math.PI / 180;
+  const axis = [current.target, Geo.fromLocal(current.target, { x: L0 * Math.sin(br), y: L0 * Math.cos(br) })];
+  return { cur, R, arc, half, path, seg, segLen: 2 * hl, W, axis };
 }
 function repDist(r) { return current.target ? map.distance(LL(current.target), LL(r)) : 0; }
 // Toutes les positions à faire tenir dans un cadrage
@@ -145,6 +148,7 @@ function figurePoints() {
   const f = figure();
   if (f) {
     pts.push(...f.arc, f.cur.ll); if (f.seg) pts.push(...f.seg);
+    if (current.show.sector) pts.push(f.axis[1]);
     if (current.params.ticks !== false) { // cercle gradué autour de la cible, chiffres compris
       const rr = ROSE_R * 1.3;
       for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; pts.push(Geo.fromLocal(current.target, { x: rr * Math.sin(a), y: rr * Math.cos(a) })); }
@@ -221,6 +225,7 @@ function draw() {
     if (current.params.ticks !== false) degRing(current.target, ROSE_R, '#ffffff');
     // Secteur de finale : sommet sur la cible, ouvert côté sous le vent, jusqu'à la prépo affichée
     syncSector(f, sh); // secteur persistant (appui long + tourner = forcer la direction du vent)
+    if (sh.sector) L.polyline(f.axis.map(LL), { color: C_SECTOR, weight: 1, dashArray: '5 5', interactive: false }).addTo(fig); // bissectrice en pointillé, plus fine que le contour
     // Chemin des prépos de 0 au vent max, gradué tous les 1 m/s
     if (sh.path) { // chemin 0 → vent max : bouton 0→7, indépendant du bouton Prépo
       const pl = f.path.map(q => LL(q.ll));
@@ -1063,6 +1068,8 @@ async function renderPdfCanvas() {
       g.save(); g.beginPath(); const T = toC(current.target); g.moveTo(T.x, T.y);
       fg.arc.forEach(ll => { const q = toC(ll); g.lineTo(q.x, q.y); }); g.closePath();
       g.strokeStyle = C_SECTOR; g.lineWidth = 2.4 * u; g.stroke(); g.restore();
+      const a0 = toC(fg.axis[0]), a1 = toC(fg.axis[1]); g.save(); g.setLineDash([8 * u, 8 * u]); g.beginPath(); g.moveTo(a0.x, a0.y); g.lineTo(a1.x, a1.y);
+      g.strokeStyle = C_SECTOR; g.lineWidth = 1.6 * u; g.stroke(); g.restore(); // bissectrice, même dessin qu'à l'écran
     }
     if (sh.path) { // chemin 0 → vent max : bouton 0→7, indépendant du bouton Prépo
       g.save(); g.beginPath(); fg.path.forEach((q, i) => { const c = toC(q.ll); i ? g.lineTo(c.x, c.y) : g.moveTo(c.x, c.y); });
