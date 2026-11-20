@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.8.4';
+const VERSION = '0.8.5';
 const APP_ID = 'pa';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -233,11 +233,15 @@ function draw() {
           L.marker(LL(q.ll), { interactive: false, icon: L.divIcon({ className: 'plabel', iconSize: [0, 0], html: `<span>${q.wind}</span>` }) }).addTo(grads);
       });
     }
-    // Prépo du vent saisi (point, ou zone si réglée) + sa hauteur
+    // Prépo du vent saisi (segment, ou point si fraction 0) + sa hauteur
     if (sh.prepo) {
-      if (f.seg) {
-        L.polyline(f.seg.map(LL), { color: '#000', weight: 4, opacity: .45, interactive: false }).addTo(fig);
-        L.polyline(f.seg.map(LL), { color: C_PREPO, weight: 2, interactive: false }).addTo(fig);
+      if (f.seg) { // segment « d'école » : trait + petite barre perpendiculaire à chaque bout, hauteur posée au-delà d'un bout
+        const g = segGeom(f.seg, ll => map.latLngToContainerPoint(LL(ll)), 7, 9);
+        const back = pt => map.containerPointToLatLng(L.point(pt.x, pt.y));
+        const lines = [f.seg.map(LL), g.ticks[0].map(back), g.ticks[1].map(back)];
+        L.polyline(lines, { color: '#000', weight: 4, opacity: .45, interactive: false }).addTo(fig);
+        L.polyline(lines, { color: C_PREPO, weight: 2, interactive: false }).addTo(fig);
+        L.marker(back(g.lab), { interactive: false, icon: L.divIcon({ className: 'seglbl ' + g.align, iconSize: [0, 0], html: `<span style="color:${C_PREPO}">${Math.round(f.cur.h)} m</span>` }) }).addTo(fig);
       }
 
     }
@@ -256,11 +260,29 @@ function syncSector(f, sh) {
   } else if (sectorPoly) { map.removeLayer(sectorPoly); sectorPoly = null; }
 }
 function syncPrepoMk(f, sh) {
+  // Avec un segment, le point rouge disparaît : il reste une poignée invisible au milieu du segment (appui long + glisser)
+  // Sans segment (fraction 0), le point rouge et sa hauteur restent la seule marque de la prépo
   if (f && sh && sh.prepo) {
-    const lab = `${Math.round(f.cur.h)} m`;
-    if (!prepoMk) { prepoMk = L.marker(LL(f.cur.ll), { zIndexOffset: 500, icon: dotIcon(C_PREPO, 12, lab, 'prepo') }).addTo(map); prepoDrag(prepoMk); }
-    else { prepoMk.setLatLng(LL(f.cur.ll)); const b = prepoMk.getElement() && prepoMk.getElement().querySelector('b'); if (b && b.textContent !== lab) b.textContent = lab; }
+    const mode = f.seg ? 'seg' : 'dot', lab = `${Math.round(f.cur.h)} m`;
+    if (prepoMk && prepoMk._mode !== mode && !isDragging(prepoMk)) { map.removeLayer(prepoMk); prepoMk = null; }
+    if (!prepoMk) {
+      const icon = mode === 'seg' ? L.divIcon({ className: 'dot prepo seghandle', html: '<span></span>', iconSize: [12, 12], iconAnchor: [6, 6] }) : dotIcon(C_PREPO, 12, lab, 'prepo');
+      prepoMk = L.marker(LL(f.cur.ll), { zIndexOffset: 500, icon }).addTo(map); prepoMk._mode = mode; prepoDrag(prepoMk);
+    } else { prepoMk.setLatLng(LL(f.cur.ll)); const b = prepoMk.getElement() && prepoMk.getElement().querySelector('b'); if (b && b.textContent !== lab) b.textContent = lab; }
   } else if (prepoMk) { map.removeLayer(prepoMk); prepoMk = null; }
+}
+// Géométrie écran du segment de prépo : barres de bout (perpendiculaires, ±tick px) et place de la hauteur
+// (au-delà du bout extérieur = le plus loin de l'axe du secteur, dans le prolongement du segment ; à égalité, le bout de droite)
+function segGeom(seg, toP, tick, gap) {
+  const a = toP(seg[0]), b = toP(seg[1]), t = toP(current.target);
+  const dx = b.x - a.x, dy = b.y - a.y, n = Math.hypot(dx, dy) || 1, ux = dx / n, uy = dy / n, px = -uy, py = ux;
+  const bar = c => [{ x: c.x + px * tick, y: c.y + py * tick }, { x: c.x - px * tick, y: c.y - py * tick }];
+  const da = Math.hypot(a.x - t.x, a.y - t.y), db = Math.hypot(b.x - t.x, b.y - t.y);
+  const end = Math.abs(da - db) > 0.5 ? (db > da ? b : a) : (b.x >= a.x ? b : a), sx = end === b ? 1 : -1, ox = ux * sx, oy = uy * sx; // direction vers l'extérieur
+  const lab = { x: end.x + ox * gap, y: end.y + oy * gap };
+  const steep = Math.abs(oy) > Math.abs(ox); // segment plutôt vertical à l'écran : on décale aussi la hauteur au-dessus / au-dessous du bout
+  if (steep) lab.y += (oy < 0 ? -1 : 1) * 4;
+  return { ticks: [bar(a), bar(b)], lab, steep, out: { x: ox, y: oy }, align: steep ? 'vert ' + (oy < 0 ? 'up' : 'down') : (ox < 0 ? 'side left' : 'side') };
 }
 // Forcer le vent sur la carte (les gestes passent par longPressDrag, comme pour la cible)
 function roundMag(dirTrue) { return n360(Math.round(n360(dirTrue - declHere())) + declHere()); } // direction ronde en magnétique
@@ -1038,13 +1060,19 @@ async function renderPdfCanvas() {
       fg.path.forEach(q => { const c = dot(q.ll, C_PATH, 3.2); shadowText(`${q.wind}`, c.x + 8 * u, c.y - 8 * u, C_PATH, 11); });
     }
     if (sh.prepo) {
-      if (fg.seg) { // même dessin qu'à l'écran, trait plus épais
-        const a2 = toC(fg.seg[0]), b2 = toC(fg.seg[1]); g.save(); g.lineCap = 'round';
-        g.beginPath(); g.moveTo(a2.x, a2.y); g.lineTo(b2.x, b2.y); g.strokeStyle = 'rgba(0,0,0,.5)'; g.lineWidth = 6 * u; g.stroke();
+      if (fg.seg) { // même dessin qu'à l'écran (segment + barres de bout, hauteur au-delà d'un bout), trait plus épais
+        const sg = segGeom(fg.seg, toC, 10 * u, 0), a2 = toC(fg.seg[0]), b2 = toC(fg.seg[1]); g.save(); g.lineCap = 'round';
+        g.beginPath(); g.moveTo(a2.x, a2.y); g.lineTo(b2.x, b2.y); sg.ticks.forEach(([p1, p2]) => { g.moveTo(p1.x, p1.y); g.lineTo(p2.x, p2.y); });
+        g.strokeStyle = 'rgba(0,0,0,.5)'; g.lineWidth = 6 * u; g.stroke();
         g.strokeStyle = C_PREPO; g.lineWidth = 3 * u; g.stroke(); g.restore();
+        const txt = `${Math.round(fg.cur.h)} m`, end = sg.lab;
+        if (sg.steep) shadowText(txt, end.x, end.y + (sg.out.y < 0 ? -1 : 1) * 22 * u, C_PREPO, 15, 'center');
+        else if (sg.out.x < 0) shadowText(txt, end.x - 12 * u, end.y, C_PREPO, 15, 'right');
+        else shadowText(txt, end.x + 12 * u, end.y, C_PREPO, 15, 'left');
+      } else {
+        const c = dot(fg.cur.ll, C_PREPO, 8.5);
+        shadowText(`${Math.round(fg.cur.h)} m`, c.x + 14 * u, c.y, C_PREPO, 15);
       }
-      const c = dot(fg.cur.ll, C_PREPO, 8.5);
-      shadowText(`${Math.round(fg.cur.h)} m`, c.x + 14 * u, c.y, C_PREPO, 15);
     }
   }
   // Cible
