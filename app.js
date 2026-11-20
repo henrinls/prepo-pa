@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.12.2';
+const VERSION = '0.12.3';
 const APP_ID = 'pa';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -303,8 +303,7 @@ function segGeom(seg, toP, frac, gap) {
   const inner = end === b ? a : b;
   return { end, inner, mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, tick, ticks: [bar(a), bar(b)], lab, steep, out: { x: ox, y: oy }, align: steep ? 'vert ' + (oy < 0 ? 'up' : 'down') : (ox < 0 ? 'side left' : 'side') };
 }
-// Place de la hauteur de prépo (20 nov. 2026) : le premier emplacement libre autour du segment — d'abord au-delà du bout
-// extérieur, puis sur les côtés, puis à l'autre bout — sans chevaucher un chiffre (degrés, chemin 0→7, cible) ni un trait
+// Place de la hauteur de prépo (20 nov. 2026) : au-delà du bout extérieur, le premier emplacement libre tout près — sans chevaucher un chiffre (degrés, chemin 0→7, cible) ni un trait
 // (chemin, secteur, bissectrice, rosace, segment). Si tout est pris, l'emplacement le moins encombré.
 const _mcv = document.createElement('canvas').getContext('2d');
 function textW(txt, px) { _mcv.font = `700 ${px}px -apple-system, Helvetica, Arial, sans-serif`; return _mcv.measureText(txt).width; }
@@ -320,14 +319,17 @@ function boxHits(B, rects, lines) {
   return n;
 }
 function pickSegLabel(sg, w, h, gap, rects, lines) {
-  const o = sg.out, nn = { x: -o.y, y: o.x }, neg = d => ({ x: -d.x, y: -d.y });
+  // Toujours au bout EXTÉRIEUR du segment (côté opposé à la cible) : seulement décalée un peu de côté
+  // (perpendiculaire au segment) et/ou un peu plus loin vers l'extérieur — jamais au milieu ni à l'autre bout (Henri, 20 nov. 2026)
+  const o = sg.out, nn = { x: -o.y, y: o.x };
   const sup = d => (Math.abs(d.x) * w + Math.abs(d.y) * h) / 2;
-  const at = (E, d, extra) => ({ x: E.x + d.x * (extra + sup(d)), y: E.y + d.y * (extra + sup(d)) });
-  const cands = [at(sg.end, o, gap), at(sg.end, nn, sg.tick + gap), at(sg.end, neg(nn), sg.tick + gap),
-    at(sg.mid, nn, gap), at(sg.mid, neg(nn), gap), at(sg.inner, neg(o), gap), at(sg.inner, nn, sg.tick + gap), at(sg.inner, neg(nn), sg.tick + gap),
-    at(sg.end, o, gap + 2 * h), at(sg.inner, neg(o), gap + 2 * h)];
+  const base = { x: sg.end.x + o.x * (gap + sup(o)), y: sg.end.y + o.y * (gap + sup(o)) };
+  const st = h * 0.9, cands = [];
+  [0, 0.5, 1, 1.5, 2, 3].forEach(ex => [0, 1, -1, 2, -2, 3, -3].forEach(sd => cands.push({ ex, sd, c: Math.abs(sd) + ex })));
+  cands.sort((p, q) => p.c - q.c);
   let best = null, bestN = 1e9;
-  for (const c of cands) {
+  for (const k of cands) {
+    const c = { x: base.x + o.x * k.ex * st + nn.x * k.sd * st, y: base.y + o.y * k.ex * st + nn.y * k.sd * st };
     const n = boxHits({ l: c.x - w / 2, r: c.x + w / 2, t: c.y - h / 2, b: c.y + h / 2 }, rects, lines);
     if (n < bestN) { best = c; bestN = n; if (!n) break; }
   }
