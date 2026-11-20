@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.8.5';
+const VERSION = '0.8.6';
 const APP_ID = 'pa';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -236,7 +236,7 @@ function draw() {
     // Prépo du vent saisi (segment, ou point si fraction 0) + sa hauteur
     if (sh.prepo) {
       if (f.seg) { // segment « d'école » : trait + petite barre perpendiculaire à chaque bout, hauteur posée au-delà d'un bout
-        const g = segGeom(f.seg, ll => map.latLngToContainerPoint(LL(ll)), 7, 9);
+        const g = segGeom(f.seg, ll => map.latLngToContainerPoint(LL(ll)), 5.25, 9);
         const back = pt => map.containerPointToLatLng(L.point(pt.x, pt.y));
         const lines = [f.seg.map(LL), g.ticks[0].map(back), g.ticks[1].map(back)];
         L.polyline(lines, { color: '#000', weight: 4, opacity: .45, interactive: false }).addTo(fig);
@@ -1061,7 +1061,7 @@ async function renderPdfCanvas() {
     }
     if (sh.prepo) {
       if (fg.seg) { // même dessin qu'à l'écran (segment + barres de bout, hauteur au-delà d'un bout), trait plus épais
-        const sg = segGeom(fg.seg, toC, 10 * u, 0), a2 = toC(fg.seg[0]), b2 = toC(fg.seg[1]); g.save(); g.lineCap = 'round';
+        const sg = segGeom(fg.seg, toC, 7.5 * u, 0), a2 = toC(fg.seg[0]), b2 = toC(fg.seg[1]); g.save(); g.lineCap = 'round';
         g.beginPath(); g.moveTo(a2.x, a2.y); g.lineTo(b2.x, b2.y); sg.ticks.forEach(([p1, p2]) => { g.moveTo(p1.x, p1.y); g.lineTo(p2.x, p2.y); });
         g.strokeStyle = 'rgba(0,0,0,.5)'; g.lineWidth = 6 * u; g.stroke();
         g.strokeStyle = C_PREPO; g.lineWidth = 3 * u; g.stroke(); g.restore();
