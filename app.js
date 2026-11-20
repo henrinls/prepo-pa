@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '0.8.6';
+const VERSION = '0.8.7';
 const APP_ID = 'pa';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -236,7 +236,7 @@ function draw() {
     // Prépo du vent saisi (segment, ou point si fraction 0) + sa hauteur
     if (sh.prepo) {
       if (f.seg) { // segment « d'école » : trait + petite barre perpendiculaire à chaque bout, hauteur posée au-delà d'un bout
-        const g = segGeom(f.seg, ll => map.latLngToContainerPoint(LL(ll)), 5.25, 9);
+        const g = segGeom(f.seg, ll => map.latLngToContainerPoint(LL(ll)), TICK_FRAC, 9);
         const back = pt => map.containerPointToLatLng(L.point(pt.x, pt.y));
         const lines = [f.seg.map(LL), g.ticks[0].map(back), g.ticks[1].map(back)];
         L.polyline(lines, { color: '#000', weight: 4, opacity: .45, interactive: false }).addTo(fig);
@@ -271,11 +271,13 @@ function syncPrepoMk(f, sh) {
     } else { prepoMk.setLatLng(LL(f.cur.ll)); const b = prepoMk.getElement() && prepoMk.getElement().querySelector('b'); if (b && b.textContent !== lab) b.textContent = lab; }
   } else if (prepoMk) { map.removeLayer(prepoMk); prepoMk = null; }
 }
-// Géométrie écran du segment de prépo : barres de bout (perpendiculaires, ±tick px) et place de la hauteur
+// Géométrie écran du segment de prépo : barres de bout (perpendiculaires, hauteur = frac × segment) et place de la hauteur
 // (au-delà du bout extérieur = le plus loin de l'axe du secteur, dans le prolongement du segment ; à égalité, le bout de droite)
-function segGeom(seg, toP, tick, gap) {
+const TICK_FRAC = 1 / 8; // hauteur totale d'une barre de bout = 1/8 de la longueur du segment (proportionnelle : même aspect à tous les zooms)
+function segGeom(seg, toP, frac, gap) {
   const a = toP(seg[0]), b = toP(seg[1]), t = toP(current.target);
   const dx = b.x - a.x, dy = b.y - a.y, n = Math.hypot(dx, dy) || 1, ux = dx / n, uy = dy / n, px = -uy, py = ux;
+  const tick = n * frac / 2; // demi-hauteur de barre, en proportion du segment affiché
   const bar = c => [{ x: c.x + px * tick, y: c.y + py * tick }, { x: c.x - px * tick, y: c.y - py * tick }];
   const da = Math.hypot(a.x - t.x, a.y - t.y), db = Math.hypot(b.x - t.x, b.y - t.y);
   const end = Math.abs(da - db) > 0.5 ? (db > da ? b : a) : (b.x >= a.x ? b : a), sx = end === b ? 1 : -1, ox = ux * sx, oy = uy * sx; // direction vers l'extérieur
@@ -1061,7 +1063,7 @@ async function renderPdfCanvas() {
     }
     if (sh.prepo) {
       if (fg.seg) { // même dessin qu'à l'écran (segment + barres de bout, hauteur au-delà d'un bout), trait plus épais
-        const sg = segGeom(fg.seg, toC, 7.5 * u, 0), a2 = toC(fg.seg[0]), b2 = toC(fg.seg[1]); g.save(); g.lineCap = 'round';
+        const sg = segGeom(fg.seg, toC, TICK_FRAC, 0), a2 = toC(fg.seg[0]), b2 = toC(fg.seg[1]); g.save(); g.lineCap = 'round';
         g.beginPath(); g.moveTo(a2.x, a2.y); g.lineTo(b2.x, b2.y); sg.ticks.forEach(([p1, p2]) => { g.moveTo(p1.x, p1.y); g.lineTo(p2.x, p2.y); });
         g.strokeStyle = 'rgba(0,0,0,.5)'; g.lineWidth = 6 * u; g.stroke();
         g.strokeStyle = C_PREPO; g.lineWidth = 3 * u; g.stroke(); g.restore();
