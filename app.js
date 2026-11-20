@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '1.4.0';
+const VERSION = '1.5.0';
 const APP_ID = 'pa';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -482,6 +482,27 @@ function placeMarkers() {
     } else if (!isDragging(m)) { m.setLatLng(LL(r)); setRepLabel(m, r, labs); }
   });
   renderReperes(labs);
+  layoutRepLabels();
+}
+// Nom des repères : à droite du losange par défaut, sinon à gauche, dessus, dessous… — le premier côté qui ne chevauche
+// ni un chiffre (degrés, chemin, hauteur de prépo), ni la cible, ni le point GPS, ni un autre repère (20 nov. 2026)
+function layoutRepLabels() {
+  const ids = Object.keys(repMarkers); if (!ids.length) return;
+  const R = el => { const r = el.getBoundingClientRect(); return { l: r.left, r: r.right, t: r.top, b: r.bottom }; };
+  const obst = [...document.querySelectorAll('.glabel span, .plabel span, .seglbl span, .rep span')].map(R);
+  [markerT, posMarker].forEach(m => { const el = m && m.getElement && m.getElement(); if (el) obst.push(R(el)); });
+  const hit = B => obst.some(o => B.l < o.r + 2 && B.r > o.l - 2 && B.t < o.b + 2 && B.b > o.t - 2);
+  ids.forEach(id => {
+    const el = repMarkers[id].getElement(), b = el && el.querySelector('b'); if (!b) return;
+    const e = el.getBoundingClientRect(), cx = e.left + e.width / 2, cy = e.top + e.height / 2;
+    const w = b.offsetWidth - 12, h = b.offsetHeight - 20; // texte seul (sans la marge d'appui)
+    const at = (l, t) => ({ l, t, r: l + w, b: t + h });
+    const C = [at(cx + 18, cy - h / 2), at(cx - 18 - w, cy - h / 2), at(cx - w / 2, cy - 15 - h), at(cx - w / 2, cy + 15),
+      at(cx + 18, cy - h * 1.5), at(cx + 18, cy + h * 0.5), at(cx - 18 - w, cy - h * 1.5), at(cx - 18 - w, cy + h * 0.5)];
+    const best = C.find(B => !hit(B)) || C[0];
+    b.style.left = `${Math.round(best.l - e.left - 4)}px`; b.style.top = `${Math.round(best.t - e.top - 10)}px`; b.style.transform = 'none';
+    obst.push(best);
+  });
 }
 // Liste des repères dans l'onglet Zones : libellé, ✏️ renommer, 🗑 supprimer ; appui sur le libellé = centrer la carte dessus
 function renderReperes(labs) {
@@ -726,7 +747,7 @@ function gpsHere(btn, then) {
     if (acc) setTimeout(() => toast(`Position prise (précision GPS ± ${acc} m)`), 2900);
   }, () => { btn.innerHTML = old; btn.disabled = false; toast('Position refusée ou indisponible'); }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
 }
-$('btnGpsT').addEventListener('click', () => gpsHere($('btnGpsT'), p => { closeSheet(); map.setView(LL(p), Math.max(map.getZoom(), 17)); setTarget(p); }));
+$('btnGpsT').addEventListener('click', async () => { if (!(await askZoneName())) return; gpsHere($('btnGpsT'), p => { closeSheet(); map.setView(LL(p), Math.max(map.getZoom(), 17)); setTarget(p); }); });
 $('btnGpsR').addEventListener('click', () => { if (!hasTarget()) return toast('Place d\'abord la cible'); gpsHere($('btnGpsR'), p => { closeSheet(); addRepere(p); }); });
 
 // ---------- Mesure : cap et distance entre deux points touchés (dans l'ordre) ----------
@@ -781,6 +802,7 @@ map.on('click', e => {
   if ((typeof Photo !== 'undefined') && Photo.onMapClick(e)) return; // calage d'une photo aérienne en cours
   if (!placing && meas.active) { measureClick({ lat: e.latlng.lat, lng: e.latlng.lng }); return; }
   if (!placing) return;
+  if (!current.id) { if (!namingZone) { namingZone = true; askZoneName().then(ok => { namingZone = false; if (ok) map.fire('click', e); }); } return; } // nom d'abord, puis le point
   const p = { lat: e.latlng.lat, lng: e.latlng.lng }, k = placing;
   placing = null; repAddOpen = false; placeBanner(); syncPlaceBtn();
   if (k === 'T') setTarget(p); else addRepere(p);
@@ -852,6 +874,8 @@ function pdfFade(g, W, H) { // même voile que l'écran sur le fond du PDF
   g.save(); g.globalAlpha = 1 - op; g.fillStyle = fade.bg === 'white' ? '#fff' : '#000'; g.fillRect(0, 0, W, H); g.restore();
 }
 applyFade();
+
+setTimeout(() => { if (!current.id && (current.target)) askZoneName('Ta zone en cours n\'est pas enregistrée. Donne-lui un nom pour la garder (elle s\'enregistre ensuite toute seule) :'); }, 1500);
 
 // Rotation portrait ↔ paysage : recadrage automatique (20 nov. 2026 : en paysage, Henri gardait le cadrage du portrait)
 let lastLand = innerWidth > innerHeight;
@@ -987,6 +1011,17 @@ function loadZone(id) {
   map.setBearing(current.bearing || 0);
   map.setView([current.center.lat, current.center.lng], Math.max(current.zoom || 17, 15));
   closeSheet(); fillInputs(); redraw(); if (hasTarget()) fitFigure(); persist();
+}
+// Zone jamais nommée (appli ouverte puis point posé directement) : on demande son nom AVANT le premier point,
+// et elle s'enregistre ensuite toute seule (20 nov. 2026 — Laura avait préparé un saut dans une « Nouvelle zone (non enregistrée) »)
+let namingZone = false;
+async function askZoneName(msg) {
+  if (current.id) return true;
+  const n = await ask(msg || 'Nom de la zone (ex. Bouloc) ? Elle s\'enregistre ensuite toute seule.', current.name && current.name !== 'Nouvelle zone' ? current.name : '');
+  if (!n || !String(n).trim()) return false;
+  current.name = String(n).trim(); current.id = 'z' + Date.now(); current.updated = Date.now();
+  zones.push(clone(current)); store.set('pa.zones', zones); persist(); fillInputs(); renderZones();
+  toast(`Zone « ${current.name} » enregistrée`); return true;
 }
 // Nouvelle zone : on choisit d'abord où aller (rester ici, ma position ou recherche), puis on place la cible
 async function startNewZone(center, zoom) {
