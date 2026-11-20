@@ -97,7 +97,11 @@ button.danger{border-color:#a33;color:#ff8a8a}
 .target{-webkit-touch-callout:none;user-select:none}
 .target span{display:block;width:34px;height:34px;border-radius:50%;background:radial-gradient(circle,#ff2020 0 3px,#fff 3px 7px,#ff2020 7px 11px,#fff 11px 15px,transparent 15px);box-shadow:0 0 0 1.5px #111 inset}
 .target.lifting span{transform:scale(1.35)}
-.rep{-webkit-touch-callout:none;user-select:none}
+.rep{-webkit-touch-callout:none;user-select:none;-webkit-user-select:none}
+/* Poignée des repères agrandie (20 nov. 2026, « vraiment difficile à déplacer ») : zone d'appui de 50 px autour du losange,
+   et le texte (nom / distance) attrapable aussi — le dessin ne change pas */
+.rep::before{content:'';position:absolute;left:-12px;top:-12px;width:50px;height:50px;border-radius:50%}
+.rep b{padding:10px 8px 10px 4px;margin-left:-4px;pointer-events:auto}
 .rep span{position:absolute;left:8.5px;top:8.5px;width:9px;height:9px;background:#fff;border:2px solid #111;transform:rotate(45deg)}
 .rep b{position:absolute;left:22px;top:50%;transform:translateY(-50%);white-space:nowrap;font-size:12px;color:#fff;text-shadow:0 0 3px #000,0 0 3px #000,0 0 2px #000}
 .rep.lifting span{transform:rotate(45deg) scale(1.4)}
@@ -168,3 +172,8 @@ button,input,select,label,a{touch-action:manipulation}
 #repAddPop.hidden{display:none}
 #repAddPop button{width:44px;height:44px;padding:0;border-radius:11px;background:rgba(20,20,20,.88);border:2px solid #fff;display:flex;align-items:center;justify-content:center;touch-action:manipulation}
 #repAddPop button.off{opacity:.4}
+
+#repList li{display:flex;gap:6px;align-items:center;padding:2px 0;border-bottom:1px solid #262626}
+#repList .zn{flex:1;cursor:pointer;padding:8px 0}
+#repList .rmk{color:#fff;font-size:13px}
+#repList .rbtn{padding:4px 9px;min-height:0;font-size:16px}

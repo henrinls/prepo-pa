@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '1.2.0';
+const VERSION = '1.3.1';
 const APP_ID = 'pa';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -438,11 +438,31 @@ function longPressDrag(marker, onMove, onEnd, onStart) {
 
 // ---------- Cible et repères : appui long pour déplacer, appui court sur un repère = nom / suppression ----------
 const targetIcon = L.divIcon({ className: 'target', iconSize: [34, 34], iconAnchor: [17, 17], html: '<span></span>' });
-function repIcon(r) {
-  const d = Math.round(repDist(r));
-  return L.divIcon({ className: 'rep', iconSize: [26, 26], iconAnchor: [13, 13],
-    html: `<span></span><b>${r.name ? esc(r.name) + ' · ' : ''}${d} m</b>` });
+// Libellé d'un repère : son nom, sinon sa distance à la cible ; deux repères (ou plus) à la même distance sont
+// distingués par leur position l'un par rapport à l'autre (N/S, E/O, puis 8 directions) — Henri, 20 nov. 2026
+const CARD8 = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'];
+function repLabels() {
+  const out = {}, groups = {};
+  current.reperes.forEach(r => { const d = Math.round(repDist(r)); (groups[d] = groups[d] || []).push(r); });
+  Object.keys(groups).forEach(d => {
+    const g = groups[d];
+    if (g.length === 1) { out[g[0].id] = `${d} m`; return; }
+    const c = g.reduce((a, r) => ({ lat: a.lat + r.lat / g.length, lng: a.lng + r.lng / g.length }), { lat: 0, lng: 0 });
+    const v = g.map(r => Geo.toLocal(c, r)), sx = Math.max(...v.map(q => q.x)) - Math.min(...v.map(q => q.x)), sy = Math.max(...v.map(q => q.y)) - Math.min(...v.map(q => q.y));
+    let tags;
+    if (g.length === 2) tags = sx > sy ? v.map(q => (q.x > 0 ? 'E' : 'O')) : v.map(q => (q.y > 0 ? 'N' : 'S'));
+    else tags = v.map(q => CARD8[Math.round(((Math.atan2(q.x, q.y) * 180 / Math.PI + 360 - declHere()) % 360) / 45) % 8]);
+    const seen = {}; tags = tags.map(t => { seen[t] = (seen[t] || 0) + 1; return t; });
+    const cnt = {}; g.forEach((r, i) => { const t = tags[i]; cnt[t] = (cnt[t] || 0) + 1; out[r.id] = `${d} m ${t}${seen[t] > 1 ? ' ' + cnt[t] : ''}`; });
+  });
+  return out;
 }
+function repText(r, labs) { const d = Math.round(repDist(r)); return r.name ? `${esc(r.name)} · ${d} m` : (labs || repLabels())[r.id] || `${d} m`; }
+function repIcon(r, labs) {
+  return L.divIcon({ className: 'rep', iconSize: [26, 26], iconAnchor: [13, 13], html: `<span></span><b>${repText(r, labs)}</b>` });
+}
+// Jamais setIcon sur un repère : cela recrée son élément et perd l'appui long (repères impossibles à déplacer jusqu'en v1.2.0)
+function setRepLabel(m, r, labs) { const el = m.getElement && m.getElement(), b = el && el.querySelector('b'); if (b) b.innerHTML = repText(r, labs); }
 function placeMarkers() {
   if (current.target) {
     if (!markerT) {
@@ -450,28 +470,55 @@ function placeMarkers() {
       longPressDrag(markerT, ll => { current.target = ll; drawLight(); }, () => { persist(); redraw(); });
     } else if (!isDragging(markerT)) markerT.setLatLng(LL(current.target));
   } else if (markerT) { map.removeLayer(markerT); markerT = null; }
-  const shown = current.show.reperes ? current.reperes : [];
+  const shown = current.show.reperes ? current.reperes : [], labs = repLabels();
   Object.keys(repMarkers).forEach(id => { if (!shown.find(r => r.id === id)) { map.removeLayer(repMarkers[id]); delete repMarkers[id]; } });
   shown.forEach(r => {
     let m = repMarkers[r.id];
     if (!m) {
-      m = repMarkers[r.id] = L.marker(LL(r), { icon: repIcon(r), zIndexOffset: 900 }).addTo(map);
-      longPressDrag(m, ll => { const q = current.reperes.find(x => x.id === r.id); if (q) { q.lat = ll.lat; q.lng = ll.lng; m.setIcon(repIcon(q)); } },
+      m = repMarkers[r.id] = L.marker(LL(r), { icon: repIcon(r, labs), zIndexOffset: 900 }).addTo(map);
+      longPressDrag(m, ll => { const q = current.reperes.find(x => x.id === r.id); if (q) { q.lat = ll.lat; q.lng = ll.lng; setRepLabel(m, q); renderReperes(); } },
         () => { persist(); redraw(); });
       m.on('click', () => { if (Date.now() < suppressClickUntil || placing || meas.active) return; editRepere(r.id); });
-    } else if (!isDragging(m)) { m.setLatLng(LL(r)); m.setIcon(repIcon(r)); }
+    } else if (!isDragging(m)) { m.setLatLng(LL(r)); setRepLabel(m, r, labs); }
   });
+  renderReperes(labs);
+}
+// Liste des repères dans l'onglet Zones : libellé, ✏️ renommer, 🗑 supprimer ; appui sur le libellé = centrer la carte dessus
+function renderReperes(labs) {
+  const ul = $('repList'); if (!ul) return;
+  labs = labs || repLabels(); ul.innerHTML = '';
+  if (!current.reperes.length) { ul.innerHTML = '<li class="mut">Aucun repère.</li>'; return; }
+  current.reperes.slice().sort((a, b) => repDist(a) - repDist(b)).forEach(r => {
+    const li = document.createElement('li');
+    li.innerHTML = `<span class="rmk">◆</span><span class="zn">${repText(r, labs)}</span><button class="rbtn" title="Renommer">✏️</button><button class="rbtn" title="Supprimer">🗑</button>`;
+    const [bEdit, bDel] = li.querySelectorAll('button');
+    li.querySelector('.zn').onclick = () => { closeSheet(); map.setView(LL(r), Math.max(map.getZoom(), 18)); };
+    bEdit.onclick = () => renameRepere(r.id);
+    bDel.onclick = () => deleteRepere(r.id);
+    ul.append(li);
+  });
+}
+async function renameRepere(id) {
+  const r = current.reperes.find(x => x.id === id); if (!r) return;
+  const res = await ask(`Nom du repère (vide = sa distance à la cible, ${Math.round(repDist(r))} m) :`, r.name || '');
+  if (res === null) return;
+  r.name = String(res).trim(); persist(); redraw();
+}
+async function deleteRepere(id) {
+  const r = current.reperes.find(x => x.id === id); if (!r) return;
+  if (!(await ask(`Supprimer le repère « ${repText(r).replace(/&[a-z]+;/g, '')} » ?`))) return;
+  current.reperes = current.reperes.filter(x => x.id !== id); persist(); redraw(); toast('Repère supprimé');
 }
 function resetMarkers() {
   if (markerT) { map.removeLayer(markerT); markerT = null; }
   Object.keys(repMarkers).forEach(id => { map.removeLayer(repMarkers[id]); delete repMarkers[id]; });
 }
-async function editRepere(id) {
+async function editRepere(id) { // appui court sur un repère de la carte : nom ou suppression
   const r = current.reperes.find(x => x.id === id); if (!r) return;
-  const res = await ask(`Repère à ${Math.round(repDist(r))} m de la cible. Nom (facultatif) :`, r.name || '', 'Supprimer');
+  const res = await ask(`Repère à ${Math.round(repDist(r))} m de la cible. Nom (vide = sa distance) :`, r.name || '', 'Supprimer');
   if (res === 'DELETE') { current.reperes = current.reperes.filter(x => x.id !== id); persist(); redraw(); toast('Repère supprimé'); return; }
   if (res === null) return;
-  r.name = res; if (repMarkers[id]) repMarkers[id].setIcon(repIcon(r)); persist();
+  r.name = String(res).trim(); persist(); redraw();
 }
 function addRepere(p) {
   current.reperes.push({ id: 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), lat: p.lat, lng: p.lng, name: '' });
@@ -1223,10 +1270,11 @@ async function renderPdfCanvas() {
     [[11, '#fff'], [8, C_TARGET], [4.5, '#fff'], [2, C_TARGET]].forEach(([r, col]) => { g.beginPath(); g.arc(c.x, c.y, r * u, 0, 2 * Math.PI); g.fillStyle = col; g.fill(); });
     g.lineWidth = 1.2 * u; g.strokeStyle = '#111'; g.beginPath(); g.arc(c.x, c.y, 11 * u, 0, 2 * Math.PI); g.stroke(); g.restore(); }
   // Repères : point + distance à la cible
+  const pdfRepLabs = repLabels();
   if (sh.reperes) current.reperes.forEach(r => {
     const c = toC(r); g.save(); g.translate(c.x, c.y); g.rotate(Math.PI / 4);
     g.fillStyle = C_REP; g.strokeStyle = '#111'; g.lineWidth = 1.4 * u; g.fillRect(-5 * u, -5 * u, 10 * u, 10 * u); g.strokeRect(-5 * u, -5 * u, 10 * u, 10 * u); g.restore();
-    shadowText(`${r.name ? r.name + ' · ' : ''}${Math.round(repDist(r))} m`, c.x + 12 * u, c.y, C_REP, 13);
+    shadowText(r.name ? `${r.name} · ${Math.round(repDist(r))} m` : (pdfRepLabs[r.id] || `${Math.round(repDist(r))} m`), c.x + 12 * u, c.y, C_REP, 13);
   });
 
   // ---- Flèche du nord (coin haut gauche) ----
