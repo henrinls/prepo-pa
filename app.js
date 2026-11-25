@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '1.12.1';
+const VERSION = '1.13.0';
 const APP_ID = 'pa';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -25,9 +25,11 @@ const DEFAULT_PARAMS = {
   d0: 120, s0: 100, h0: 160,    // prépo par vent nul (hauteur 160 m : correction d'Henri, 20 nov. 2026) : profondeur, déport latéral, hauteur (m)
   dM: -30, sM: 30, hM: 30,      // prépo au vent max (profondeur négative = de l'autre côté de la cible)
   zoneFrac: 0.5,                // prépo = segment perpendiculaire au vent, long comme la largeur du secteur à cette fraction de la distance de la prépo (0 = point)
-  ticks: true
+  ticks: true,
+  c20: true                     // cercle des 20 m autour de la cible (25 nov. 2026, demande d'Henri), indépendant du cercle des 100 m
 };
 const PROFILE_KEYS = ['sector', 'vmax', 'd0', 's0', 'h0', 'dM', 'sM', 'hM', 'zoneFrac'];
+const C20_R = 20; // cercle des 20 m : pointillé blanc très fin (25 nov. 2026)
 const ROSE_R = 100; // rayon de la rosace autour de la cible (m), fixe ; le secteur de finale va toujours jusqu'à elle
 const C_TARGET = '#ff2020', C_SECTOR = '#ff8c00', C_PREPO = '#ff2020', C_PATH = '#ffd400', C_REP = '#ffffff';
 const isDark = c => c === '#000000';
@@ -226,6 +228,7 @@ function draw() {
   if (f) {
     // Graduations en degrés autour de la cible (pour lire la direction du vent)
     if (current.params.ticks !== false) degRing(current.target, ROSE_R, '#ffffff');
+    if (current.params.c20 !== false) L.circle(LL(current.target), { radius: C20_R, color: '#ffffff', weight: 1, opacity: .9, fill: false, dashArray: '2 4', interactive: false }).addTo(grads);
     // Secteur de finale : sommet sur la cible, ouvert côté sous le vent, jusqu'à la prépo affichée
     syncSector(f, sh); // secteur persistant (appui long + tourner = forcer la direction du vent)
     if (sh.sector) L.polyline(f.axis.map(LL), { color: C_SECTOR, weight: 1, dashArray: '5 5', interactive: false }).addTo(fig); // bissectrice en pointillé, plus fine que le contour
@@ -701,6 +704,7 @@ function syncQuick() {
   $('qSide').textContent = current.side === 'D' ? 'Prépo D ▶' : '◀ Prépo G';
   [['qSector', 'sector'], ['qPrepo', 'prepo'], ['qPath', 'path'], ['qReperes', 'reperes']].forEach(([id, k]) => $(id).classList.toggle('on', !!sh[k]));
   $('qTicks').classList.toggle('on', current.params.ticks !== false);
+  $('qC20').classList.toggle('on', current.params.c20 !== false);
   $('qWind').innerHTML = hasWind() ? `🌬 ${hdg(finalHeading())}<br>${fmt1(windSpd())} m/s${isForced() ? ' ✎' : ''}` : '🌬 vent';
   $('qWind').classList.toggle('warn', !hasWind()); $('qWind').classList.toggle('forced', hasWind() && isForced());
   $('qWind').classList.toggle('on', !!Wind && Wind.isOpen());
@@ -711,7 +715,8 @@ $('qSide').addEventListener('click', () => quick(() => { current.side = current.
 const SHOW_NAMES = { sector: 'Secteur de finale', prepo: 'Prépo', path: 'Chemin des prépos 0 → vent max', reperes: 'Repères' };
 [['qSector', 'sector'], ['qPrepo', 'prepo'], ['qPath', 'path'], ['qReperes', 'reperes']].forEach(([id, k]) =>
   $(id).addEventListener('click', () => quick(() => { current.show[k] = !current.show[k]; }, () => `${SHOW_NAMES[k]} ${current.show[k] ? 'affiché' : 'masqué'}`)));
-$('qTicks').addEventListener('click', () => quick(() => { current.params.ticks = current.params.ticks === false; }, () => current.params.ticks ? 'Graduations affichées' : 'Graduations masquées'));
+$('qTicks').addEventListener('click', () => quick(() => { current.params.ticks = current.params.ticks === false; }, () => current.params.ticks ? 'Cercle des 100 m affiché' : 'Cercle des 100 m masqué'));
+$('qC20').addEventListener('click', () => quick(() => { current.params.c20 = current.params.c20 === false; }, () => current.params.c20 ? 'Cercle des 20 m affiché' : 'Cercle des 20 m masqué'));
 
 // ---------- Vent : prévision Internet (panneau commun aux 3 applis, wind.js) ou vent forcé ----------
 Wind = WindPanel.make({
@@ -1334,6 +1339,10 @@ async function renderPdfCanvas() {
   };
   const fg = figure(), sh = current.show;
   if (fg) {
+    if (current.params.c20 !== false) { // cercle des 20 m, pointillé blanc très fin
+      const c = toC(current.target); g.save(); g.strokeStyle = '#fff'; g.globalAlpha = .9; g.lineWidth = .9 * u; g.setLineDash([2 * u, 4 * u]);
+      g.beginPath(); g.arc(c.x, c.y, C20_R * pxPerM(current.target), 0, 2 * Math.PI); g.stroke(); g.restore();
+    }
     if (current.params.ticks !== false) { // graduations autour de la cible
       const c = toC(current.target), Rr = ROSE_R * pxPerM(current.target);
       g.save(); g.strokeStyle = '#fff'; g.globalAlpha = .8; g.lineWidth = 1.4 * u; g.setLineDash([4 * u, 6 * u]);

@@ -12,7 +12,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>prepo-PA · précision d’atterrissage</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=1.12.1">
+<link rel="stylesheet" href="style.css?v=1.13.0">
 </head>
 <body>
 <div id="map"></div>
@@ -39,7 +39,8 @@
   <button id="qWind" title="Vent : prévision Internet (tableau) ou vent forcé"></button>
   <button id="qUnforce" class="hidden" title="Supprimer le vent forcé : revenir au vent d'Internet">✕ forcé</button>
   <button id="qSide" title="Prépo à gauche ou à droite"></button>
-  <button id="qTicks" title="Graduations en degrés autour de la cible">0°</button>
+  <button id="qTicks" data-sm="Cercle des 100 m · degrés" title="Cercle des 100 m (degrés) autour de la cible">0°</button>
+  <button id="qC20" data-sm="Cercle des 20 m" title="Cercle des 20 m autour de la cible">20 m</button>
   <button id="qSector" title="Afficher / masquer le secteur de finale">Secteur</button>
   <button id="qPrepo" title="Afficher / masquer la prépo">Prépo</button>
   <button id="qPath" title="Afficher / masquer le chemin des prépos de 0 au vent max">0→7</button>
@@ -202,17 +203,17 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=1.12.1"></script>
-<script src="vendor/leaflet-rotate.js?v=1.12.1"></script>
-<script src="geo.js?v=1.12.1"></script>
-<script src="wmm.js?v=1.12.1"></script>
-<script src="clubs.js?v=1.12.1"></script>
-<script src="wind.js?v=1.12.1"></script>
-<script src="windpick.js?v=1.12.1"></script>
-<script src="pdfview.js?v=1.12.1"></script>
-<script src="lpmove.js?v=1.12.1"></script>
-<script src="app.js?v=1.12.1"></script>
-<script src="showmenu.js?v=1.12.1"></script>
-<script src="photo.js?v=1.12.1"></script>
+<script src="vendor/leaflet.js?v=1.13.0"></script>
+<script src="vendor/leaflet-rotate.js?v=1.13.0"></script>
+<script src="geo.js?v=1.13.0"></script>
+<script src="wmm.js?v=1.13.0"></script>
+<script src="clubs.js?v=1.13.0"></script>
+<script src="wind.js?v=1.13.0"></script>
+<script src="windpick.js?v=1.13.0"></script>
+<script src="pdfview.js?v=1.13.0"></script>
+<script src="lpmove.js?v=1.13.0"></script>
+<script src="app.js?v=1.13.0"></script>
+<script src="showmenu.js?v=1.13.0"></script>
+<script src="photo.js?v=1.13.0"></script>
 </body>
 </html>
