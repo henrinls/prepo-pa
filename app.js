@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '1.11.0';
+const VERSION = '1.12.0';
 const APP_ID = 'pa';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -1472,14 +1472,15 @@ async function shareJson(obj, name) {
     else { const url = URL.createObjectURL(file); const a = document.createElement('a'); a.href = url; a.download = name; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000); }
   } catch (e) { if (e && e.name !== 'AbortError') toast('Export impossible'); }
 }
-async function exportKind(kind) {
-  persist();
+async function exportKind(kind) { /* v (Henri, 25/11/2026) : kind 'zone' = seulement la zone ouverte (même format que « zones », réimportable pareil) */
+  persist(); const one = kind === 'zone'; if (one && !(current.id && zones.some(z => z.id === current.id))) { toast('Donne d\'abord un nom à la zone ouverte (elle n\'est pas encore enregistrée)'); return; }
   const n = await ask('Ton prénom (il sera dans le nom du fichier, pour savoir de qui il vient) :', store.get('pa.author', ''));
   if (n === null) return;
   const who = String(n).trim(); store.set('pa.author', who);
   const obj = { app: 'prepo-pa', kind, v: 4, exported: new Date().toISOString(), author: who };
-  if (kind === 'zones') obj.zones = zones; else obj.profile = profile;
-  await shareJson(obj, `${dateStamp()}_Prepo_PA_${kind === 'zones' ? 'Zones' : 'Manoeuvre'}${who ? '_' + safeName(who) : ''}.json`);
+  if (one) obj.kind = 'zones';
+  if (kind === 'zones' || one) obj.zones = one ? zones.filter(z => z.id === current.id) : zones; else obj.profile = profile;
+  await shareJson(obj, `${dateStamp()}_Prepo_PA_${one ? 'Zone_' + safeName(current.name || 'zone') : kind === 'zones' ? 'Zones' : 'Manoeuvre'}${who ? '_' + safeName(who) : ''}.json`);
 }
 async function readJsonFile(input) {
   const f = input.files && input.files[0]; if (!f) return null;
@@ -1487,6 +1488,7 @@ async function readJsonFile(input) {
 }
 const fromWho = d => d && d.author ? ` de ${d.author}` : '';
 $('btnExportZones').addEventListener('click', () => exportKind('zones'));
+$('btnExportZone').addEventListener('click', () => exportKind('zone'));
 $('btnExportProf').addEventListener('click', () => exportKind('profile'));
 $('btnImportZones').addEventListener('click', () => { $('importZonesFile').value = ''; $('importZonesFile').click(); });
 $('btnImportProf').addEventListener('click', () => { $('importProfFile').value = ''; $('importProfFile').click(); });
