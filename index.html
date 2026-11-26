@@ -12,7 +12,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>prepo-PA · précision d’atterrissage</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=1.17.0">
+<link rel="stylesheet" href="style.css?v=1.17.1">
 </head>
 <body>
 <div id="map"></div>
@@ -53,8 +53,10 @@
 </nav>
 
 <div id="windsBox" class="hidden">
+  <button id="t_x" class="wx" title="Fermer">✕</button>
   <div class="when"><button id="t_minus">−1 h</button><input type="date" id="t_date"><select class="hr" id="t_hour" title="Heure"><option value="00">00 h</option><option value="01">01 h</option><option value="02">02 h</option><option value="03">03 h</option><option value="04">04 h</option><option value="05">05 h</option><option value="06">06 h</option><option value="07">07 h</option><option value="08">08 h</option><option value="09">09 h</option><option value="10">10 h</option><option value="11">11 h</option><option value="12">12 h</option><option value="13">13 h</option><option value="14">14 h</option><option value="15">15 h</option><option value="16">16 h</option><option value="17">17 h</option><option value="18">18 h</option><option value="19">19 h</option><option value="20">20 h</option><option value="21">21 h</option><option value="22">22 h</option><option value="23">23 h</option></select><button id="t_plus">+1 h</button></div>
   <p class="hint" id="t_info"></p>
+  <p class="hint calhint">Étalonnage : touche une ligne pour reprendre son vent.</p>
   <div id="forcedBox">
     <div class="frow"><b>Vent utilisé</b> <span id="f_state"></span></div>
     <div class="grid2"><div><label>Vient du (° M)</label><input id="f_dir" inputmode="decimal"></div><div><label>Force (m/s)</label><input id="f_spd" inputmode="decimal"></div></div>
@@ -209,20 +211,20 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=1.17.0"></script>
-<script src="vendor/leaflet-rotate.js?v=1.17.0"></script>
-<script src="geo.js?v=1.17.0"></script>
-<script src="undo.js?v=1.17.0"></script>
-<script src="calib.js?v=1.17.0"></script>
-<script src="barb.js?v=1.17.0"></script>
-<script src="wmm.js?v=1.17.0"></script>
-<script src="clubs.js?v=1.17.0"></script>
-<script src="wind.js?v=1.17.0"></script>
-<script src="windpick.js?v=1.17.0"></script>
-<script src="pdfview.js?v=1.17.0"></script>
-<script src="lpmove.js?v=1.17.0"></script>
-<script src="app.js?v=1.17.0"></script>
-<script src="showmenu.js?v=1.17.0"></script>
-<script src="photo.js?v=1.17.0"></script>
+<script src="vendor/leaflet.js?v=1.17.1"></script>
+<script src="vendor/leaflet-rotate.js?v=1.17.1"></script>
+<script src="geo.js?v=1.17.1"></script>
+<script src="undo.js?v=1.17.1"></script>
+<script src="calib.js?v=1.17.1"></script>
+<script src="barb.js?v=1.17.1"></script>
+<script src="wmm.js?v=1.17.1"></script>
+<script src="clubs.js?v=1.17.1"></script>
+<script src="wind.js?v=1.17.1"></script>
+<script src="windpick.js?v=1.17.1"></script>
+<script src="pdfview.js?v=1.17.1"></script>
+<script src="lpmove.js?v=1.17.1"></script>
+<script src="app.js?v=1.17.1"></script>
+<script src="showmenu.js?v=1.17.1"></script>
+<script src="photo.js?v=1.17.1"></script>
 </body>
 </html>
