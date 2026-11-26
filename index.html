@@ -12,7 +12,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>prepo-PA · précision d’atterrissage</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=1.15.1">
+<link rel="stylesheet" href="style.css?v=1.16.0">
 </head>
 <body>
 <div id="map"></div>
@@ -134,6 +134,8 @@
 
   <div id="tab-pilote" class="tab hidden">
     <p class="hint">Ta manœuvre : ces réglages sont communs à <b>toutes</b> tes zones. Le vent du jour (direction, force) se règle sur la carte avec 🌬.</p>
+    <button id="btnCalib" class="wide">🎯 Étalonner sur la carte (poser une prépo)</button>
+    <p class="hint">Pose sur la carte la prépo d'un vrai saut, puis donne le vent et ta hauteur : la manœuvre est recalculée (en ligne droite entre vent nul et vent max).</p>
     <h3>Secteur de finale</h3>
     <div class="grid2">
       <div><label>Ouverture totale (°)</label><input id="p_sector" inputmode="decimal"></div>
@@ -207,19 +209,20 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=1.15.1"></script>
-<script src="vendor/leaflet-rotate.js?v=1.15.1"></script>
-<script src="geo.js?v=1.15.1"></script>
-<script src="undo.js?v=1.15.1"></script>
-<script src="barb.js?v=1.15.1"></script>
-<script src="wmm.js?v=1.15.1"></script>
-<script src="clubs.js?v=1.15.1"></script>
-<script src="wind.js?v=1.15.1"></script>
-<script src="windpick.js?v=1.15.1"></script>
-<script src="pdfview.js?v=1.15.1"></script>
-<script src="lpmove.js?v=1.15.1"></script>
-<script src="app.js?v=1.15.1"></script>
-<script src="showmenu.js?v=1.15.1"></script>
-<script src="photo.js?v=1.15.1"></script>
+<script src="vendor/leaflet.js?v=1.16.0"></script>
+<script src="vendor/leaflet-rotate.js?v=1.16.0"></script>
+<script src="geo.js?v=1.16.0"></script>
+<script src="undo.js?v=1.16.0"></script>
+<script src="calib.js?v=1.16.0"></script>
+<script src="barb.js?v=1.16.0"></script>
+<script src="wmm.js?v=1.16.0"></script>
+<script src="clubs.js?v=1.16.0"></script>
+<script src="wind.js?v=1.16.0"></script>
+<script src="windpick.js?v=1.16.0"></script>
+<script src="pdfview.js?v=1.16.0"></script>
+<script src="lpmove.js?v=1.16.0"></script>
+<script src="app.js?v=1.16.0"></script>
+<script src="showmenu.js?v=1.16.0"></script>
+<script src="photo.js?v=1.16.0"></script>
 </body>
 </html>

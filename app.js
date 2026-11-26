@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '1.15.1';
+const VERSION = '1.16.0';
 const APP_ID = 'pa';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -893,6 +893,7 @@ map.on('click', e => {
   if (Date.now() < suppressClickUntil) return; // fin d'un déplacement de point : pas un appui
   if ((typeof Photo !== 'undefined') && Photo.onMapClick(e)) return; // calage d'une photo aérienne en cours
   if ((typeof WindPick !== 'undefined') && WindPick.onMapClick(e)) return; // point choisi pour le tableau des vents
+  if ((typeof Calib !== 'undefined') && Calib.onMapClick(e)) return; /* v1.16.0 : étalonnage de la manœuvre */
   if (!placing && meas.active) { measureClick({ lat: e.latlng.lat, lng: e.latlng.lng }); return; }
   if (!placing) return;
   if (!current.id) { if (!namingZone) { namingZone = true; askZoneName().then(ok => { namingZone = false; if (ok) map.fire('click', e); }); } return; } // nom d'abord, puis le point
@@ -1600,3 +1601,33 @@ Undo.init({ toast, ignore: [], state: () => ({ key: current.id || '', obj: curre
     if (current.params) { PROFILE_KEYS.forEach(k => { if (k in current.params) profile[k] = current.params[k]; }); store.set('pa.profile', profile); zones.forEach(applyProfile); }
     resetMarkers(); placing = null; setBanner(null); stopMeasure(); fillInputs(); /* Henri : ni onglet, ni fenêtre, ni zoom ne changent */ redraw(); persist();
   } });
+
+/* ---------- v1.16.0 (Henri) : étalonner la manœuvre sur la carte (calib.js, commun avec Setup PSV) ----------
+   Bouton de l'onglet Manœuvre → toucher la carte à l'endroit de sa prépo → vent (force, axe d'où il vient : axe orange passant
+   par la cible, poignée ou −5 −1 +1 +5) et hauteur (proposée : celle de la manœuvre pour ce vent) → la manœuvre est recalculée :
+   la prépo varie en ligne droite avec le vent, entre le vent nul et le vent max. Prépo posée par vent v > 0 : le point « vent nul »
+   reste la référence et le point « vent max » est recalculé ; posée par vent nul : c'est le point « vent max » qui reste.
+   Le côté (prépo à droite / à gauche) prend le côté où la prépo a été posée. */
+function setManeuver(k, v) { current.params[k] = v; profile[k] = v; }
+function startCalib() {
+  if (!hasTarget()) { toast('Place d\'abord la cible (☰ Zones)'); return; }
+  closeSheet(); placing = null; repAddOpen = false; placeBanner(); syncPlaceBtn();
+  const w = windNow(), net = netWind();
+  Calib.start({ map, steps: [{ label: 'Touche la carte à l\'endroit de ta prépo.', color: '#ff2020' }], anchor: () => current.target, anchorName: 'la cible',
+    decl: () => declHere(), title: 'Vent pendant ce saut', hLabel: 'Hauteur de prépo',
+    wind: { dir: w ? w.dir : (net ? net.dir : 0), spd: w ? w.spd : (net ? net.spd : 0) },
+    height: v => prepoAt(v).h, onOk: applyCalib });
+}
+function applyCalib(r) {
+  const p = current.params, vm = Math.max(0.1, +p.vmax || 7), W = r.dir * Math.PI / 180, q = Geo.toLocal(current.target, r.pts[0]);
+  const down = { x: -Math.sin(W), y: -Math.cos(W) }, right = { x: Math.cos(W), y: -Math.sin(W) };
+  const d = q.x * down.x + q.y * down.y, ss = q.x * right.x + q.y * right.y, s = Math.abs(ss), h = r.h, v = Math.max(0, +r.spd || 0);
+  current.side = ss >= 0 ? 'D' : 'G';
+  const R = x => Math.round(x);
+  if (v < 0.05) { setManeuver('d0', R(d)); setManeuver('s0', R(s)); setManeuver('h0', R(h)); }
+  else { const k = vm / v, ex = (x0, x) => R(x0 + (x - x0) * k); setManeuver('dM', ex(+p.d0 || 0, d)); setManeuver('sM', ex(+p.s0 || 0, s)); setManeuver('hM', ex(+p.h0 || 0, h)); }
+  store.set('pa.profile', profile); zones.forEach(applyProfile); store.set('pa.zones', zones);
+  persist(); fillInputs(); redraw();
+  toast(v < 0.05 ? `Prépo par vent nul : ${R(d)} m de profondeur, ${R(s)} m de déport, ${R(h)} m` : `Prépo à ${String(Math.round(v * 10) / 10).replace('.', ',')} m/s gardée ; vent max recalculé : ${p.dM} m · ${p.sM} m · ${p.hM} m`);
+}
+$('btnCalib').addEventListener('click', startCalib);
