@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '1.14.0';
+const VERSION = '1.14.1';
 const APP_ID = 'pa';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -473,8 +473,12 @@ function repIcon(r, labs) {
 // Jamais setIcon sur un repère : cela recrée son élément et perd l'appui long (repères impossibles à déplacer jusqu'en v1.2.0)
 function setRepLabel(m, r, labs) { const el = m.getElement && m.getElement(), b = el && el.querySelector('b'); if (b) b.innerHTML = repText(r, labs); }
 /* v1.14.0 (Henri) : barbule cyan du vent au sol à côté de la cible (barb.js, même dessin que trace-isv), côté AU VENT : le secteur et la prépo sont sous le vent, la place est libre ;
-   vent forcé s'il y en a un, sinon prévision */
-function syncBarb() { if (markerT) Barb.mount(markerT.getElement(), windNow(), current.target, map, d => ({ x: 17 - d.x * 26, y: 17 - d.y * 26 })); }
+   v1.14.1 (Henri) : TOUJOURS le vent réel (prévision Internet, netWind), jamais le vent forcé */
+function upSide(toPx) { /* sens à l'écran d'où vient le vent de finale (forcé ou réel) : la barbule se met de ce côté, hors du secteur */
+  const T = toPx(current.target), r = finalHeading() * Math.PI / 180, F = toPx(Geo.fromLocal(current.target, { x: Math.sin(r) * 1000, y: Math.cos(r) * 1000 })), l = Math.hypot(F.x - T.x, F.y - T.y) || 1;
+  return { x: (F.x - T.x) / l, y: (F.y - T.y) / l };
+}
+function syncBarb() { if (!markerT) return; const up = upSide(ll => map.latLngToContainerPoint(LL(ll))); Barb.mount(markerT.getElement(), netWind(), current.target, map, () => ({ x: 17 + up.x * 26, y: 17 + up.y * 26 })); }
 function placeMarkers() {
   if (current.target) {
     if (!markerT) {
@@ -1403,7 +1407,7 @@ async function renderPdfCanvas() {
   { const c = toC(current.target); g.save();
     [[11, '#fff'], [8, C_TARGET], [4.5, '#fff'], [2, C_TARGET]].forEach(([r, col]) => { g.beginPath(); g.arc(c.x, c.y, r * u, 0, 2 * Math.PI); g.fillStyle = col; g.fill(); });
     g.lineWidth = 1.2 * u; g.strokeStyle = '#111'; g.beginPath(); g.arc(c.x, c.y, 11 * u, 0, 2 * Math.PI); g.stroke(); g.restore();
-    Barb.pdf(g, windNow(), current.target, toC, u, d => ({ x: c.x - d.x * 26 * u, y: c.y - d.y * 26 * u })); /* v1.14.0 : barbule du vent au sol */ }
+    { const up = upSide(toC); Barb.pdf(g, netWind(), current.target, toC, u, () => ({ x: c.x + up.x * 26 * u, y: c.y + up.y * 26 * u })); } /* v1.14.0 : barbule du vent au sol */ }
   // Repères : point + distance à la cible
   const pdfRepLabs = repLabels();
   if (sh.reperes) current.reperes.forEach(r => {
