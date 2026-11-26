@@ -12,14 +12,18 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>prepo-PA · précision d’atterrissage</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=1.14.1">
+<link rel="stylesheet" href="style.css?v=1.15.0">
 </head>
 <body>
 <div id="map"></div>
 
 <header id="top">
   <div class="leftcol">
-    <button id="btnManeuver" class="pill" title="Manœuvre">⚙ Manœuvre</button>
+    <div class="parRow">
+      <button id="btnManeuver" class="pill" title="Manœuvre">⚙<span class="plab"> Manœuvre</span></button>
+      <button id="btnUndo" class="pill" title="Annuler la dernière action" disabled></button>
+      <button id="btnRedo" class="pill" title="Rétablir l'action annulée" disabled></button>
+    </div>
     <button id="btnZones" class="pill" title="Zones">☰ <span id="zoneName">Nouvelle zone</span></button>
   </div>
   <div class="spacer"></div>
@@ -203,18 +207,19 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=1.14.1"></script>
-<script src="vendor/leaflet-rotate.js?v=1.14.1"></script>
-<script src="geo.js?v=1.14.1"></script>
-<script src="barb.js?v=1.14.1"></script>
-<script src="wmm.js?v=1.14.1"></script>
-<script src="clubs.js?v=1.14.1"></script>
-<script src="wind.js?v=1.14.1"></script>
-<script src="windpick.js?v=1.14.1"></script>
-<script src="pdfview.js?v=1.14.1"></script>
-<script src="lpmove.js?v=1.14.1"></script>
-<script src="app.js?v=1.14.1"></script>
-<script src="showmenu.js?v=1.14.1"></script>
-<script src="photo.js?v=1.14.1"></script>
+<script src="vendor/leaflet.js?v=1.15.0"></script>
+<script src="vendor/leaflet-rotate.js?v=1.15.0"></script>
+<script src="geo.js?v=1.15.0"></script>
+<script src="undo.js?v=1.15.0"></script>
+<script src="barb.js?v=1.15.0"></script>
+<script src="wmm.js?v=1.15.0"></script>
+<script src="clubs.js?v=1.15.0"></script>
+<script src="wind.js?v=1.15.0"></script>
+<script src="windpick.js?v=1.15.0"></script>
+<script src="pdfview.js?v=1.15.0"></script>
+<script src="lpmove.js?v=1.15.0"></script>
+<script src="app.js?v=1.15.0"></script>
+<script src="showmenu.js?v=1.15.0"></script>
+<script src="photo.js?v=1.15.0"></script>
 </body>
 </html>
