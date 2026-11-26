@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '1.13.1';
+const VERSION = '1.13.2';
 const APP_ID = 'pa';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -770,17 +770,26 @@ function syncPlaceBtn() {
   $('btnPlaceR').classList.toggle('on', placing === 'R');
   const open = placing === 'R' && repAddOpen;
   if (!open) repAddOpen = false;
-  $('qRepAdd').classList.toggle('on', open);
+  $('qRepAdd').classList.toggle('on', open || repMenu); $('repAddPop').classList.toggle('hidden', !repMenu);
+  if (repMenu) { // ◆ et 📡 à droite du ＋◆, l'un sous l'autre
+    const r = $('qRepAdd').getBoundingClientRect(), pop = $('repAddPop');
+    pop.style.left = `${Math.round(r.right + 6)}px`; pop.style.top = `${Math.round(r.top + r.height / 2 - 22)}px`;
+  }
 }
-// ＋◆ des repères (26 nov. 2026, demande d'Henri ; avant : sous-boutons 📡 et mesure, supprimés) : un appui = mode « nouveau repère »,
-// puis toucher la carte = repère là, ou toucher un des deux points de la mesure affichée = repère exactement dessus.
-// La mesure n'est NI effacée NI quittée (ni à l'appui, ni après la pose). 2e appui sur ＋◆ = annuler. Repère au GPS : onglet Zones.
+// ＋◆ des repères (26 nov. 2026, demandes d'Henri, v1.13.2) : un appui ouvre un menu de deux boutons :
+// ◆ = repère libre (puis toucher la carte = repère là, ou un des deux points de la mesure = repère exactement dessus) ;
+// 📡 = repère à ma position GPS. La mesure n'est NI effacée NI quittée (ni à l'appui, ni après la pose).
+// 2e appui sur ＋◆ (menu ouvert ou pose en attente) = annuler ; toucher ailleurs ferme le menu.
+var repMenu = false;
 $('qRepAdd').addEventListener('click', () => {
-  if (placing === 'R' && repAddOpen) { placing = null; repAddOpen = false; placeBanner(); syncPlaceBtn(); return; }
+  if (repMenu || (placing === 'R' && repAddOpen)) { repMenu = false; if (placing === 'R') placing = null; repAddOpen = false; placeBanner(); syncPlaceBtn(); return; }
   if (!hasTarget()) return toast('Place d\'abord la cible');
-  placing = 'R'; repAddOpen = true; placeBanner(); syncPlaceBtn(); // la mesure reste affichée
+  repMenu = true; syncPlaceBtn();
 });
-function endRepAdd() { placing = null; repAddOpen = false; placeBanner(); syncPlaceBtn(); }
+$('qRepFree').addEventListener('click', () => { repMenu = false; placing = 'R'; repAddOpen = true; placeBanner(); syncPlaceBtn(); }); // la mesure reste affichée
+$('qRepGps').addEventListener('click', () => gpsHere($('qRepGps'), p => { repMenu = false; syncPlaceBtn(); addRepere(p); }));
+document.addEventListener('pointerdown', e => { if (repMenu && !$('repAddPop').contains(e.target) && !$('qRepAdd').contains(e.target)) { repMenu = false; syncPlaceBtn(); } }, true);
+function endRepAdd() { repMenu = false; placing = null; repAddOpen = false; placeBanner(); syncPlaceBtn(); }
 function measPtNear(ll) { // point de mesure à moins de 22 px de l'endroit touché, sinon null
   const P = map.latLngToContainerPoint(LL(ll)); let best = null, bd = 22;
   ['a', 'b'].forEach(k => { if (!meas[k]) return; const d = P.distanceTo(map.latLngToContainerPoint(LL(meas[k]))); if (d < bd) { bd = d; best = { lat: meas[k].lat, lng: meas[k].lng }; } });
