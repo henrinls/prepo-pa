@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '1.13.3';
+const VERSION = '1.14.0';
 const APP_ID = 'pa';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -192,7 +192,7 @@ function syncCompass() {
   $('btnNorth').classList.toggle('rotated', Math.abs(((b % 360) + 360) % 360) > 0.5);
 }
 let rotT = 0;
-map.on('rotate', () => { syncCompass(); current.bearing = map.getBearing(); clearTimeout(rotT); rotT = setTimeout(persist, 400); });
+map.on('rotate', () => { syncCompass(); if (typeof syncBarb === 'function') syncBarb(); current.bearing = map.getBearing(); clearTimeout(rotT); rotT = setTimeout(persist, 400); });
 
 
 const fig = L.layerGroup().addTo(map);
@@ -472,6 +472,9 @@ function repIcon(r, labs) {
 }
 // Jamais setIcon sur un repère : cela recrée son élément et perd l'appui long (repères impossibles à déplacer jusqu'en v1.2.0)
 function setRepLabel(m, r, labs) { const el = m.getElement && m.getElement(), b = el && el.querySelector('b'); if (b) b.innerHTML = repText(r, labs); }
+/* v1.14.0 (Henri) : barbule cyan du vent au sol à côté de la cible (barb.js, même dessin que trace-isv), côté AU VENT : le secteur et la prépo sont sous le vent, la place est libre ;
+   vent forcé s'il y en a un, sinon prévision */
+function syncBarb() { if (markerT) Barb.mount(markerT.getElement(), windNow(), current.target, map, d => ({ x: 17 - d.x * 26, y: 17 - d.y * 26 })); }
 function placeMarkers() {
   if (current.target) {
     if (!markerT) {
@@ -479,6 +482,7 @@ function placeMarkers() {
       longPressDrag(markerT, ll => { current.target = ll; drawLight(); }, () => { persist(); redraw(); });
     } else if (!isDragging(markerT)) markerT.setLatLng(LL(current.target));
   } else if (markerT) { map.removeLayer(markerT); markerT = null; }
+  syncBarb();
   const shown = current.show.reperes ? current.reperes : [], labs = repLabels();
   Object.keys(repMarkers).forEach(id => { if (!shown.find(r => r.id === id)) { map.removeLayer(repMarkers[id]); delete repMarkers[id]; } });
   shown.forEach(r => {
@@ -1398,7 +1402,8 @@ async function renderPdfCanvas() {
   // Cible
   { const c = toC(current.target); g.save();
     [[11, '#fff'], [8, C_TARGET], [4.5, '#fff'], [2, C_TARGET]].forEach(([r, col]) => { g.beginPath(); g.arc(c.x, c.y, r * u, 0, 2 * Math.PI); g.fillStyle = col; g.fill(); });
-    g.lineWidth = 1.2 * u; g.strokeStyle = '#111'; g.beginPath(); g.arc(c.x, c.y, 11 * u, 0, 2 * Math.PI); g.stroke(); g.restore(); }
+    g.lineWidth = 1.2 * u; g.strokeStyle = '#111'; g.beginPath(); g.arc(c.x, c.y, 11 * u, 0, 2 * Math.PI); g.stroke(); g.restore();
+    Barb.pdf(g, windNow(), current.target, toC, u, d => ({ x: c.x - d.x * 26 * u, y: c.y - d.y * 26 * u })); /* v1.14.0 : barbule du vent au sol */ }
   // Repères : point + distance à la cible
   const pdfRepLabs = repLabels();
   if (sh.reperes) current.reperes.forEach(r => {
