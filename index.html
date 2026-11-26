@@ -12,7 +12,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>prepo-PA · précision d’atterrissage</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css?v=1.13.0">
+<link rel="stylesheet" href="style.css?v=1.13.1">
 </head>
 <body>
 <div id="map"></div>
@@ -30,10 +30,6 @@
 </header>
 
 <div id="banner" class="hidden"></div>
-<div id="repAddPop" class="hidden">
-  <button id="qRepGps" title="Repère à ma position (GPS)"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="2" fill="#fff"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
-  <button id="qRepMeas" title="Repère au 2e point de la mesure"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke-linecap="round"><circle cx="4.5" cy="19.5" r="2" fill="#00e5ff"/><path d="M6.5 17.5 15 9" stroke="#00e5ff" stroke-width="2" stroke-dasharray="3 3"/><circle cx="17.5" cy="6.5" r="4" fill="#00e5ff" stroke="#fff" stroke-width="1.5"/></svg></button>
-</div>
 
 <nav id="quick">
   <button id="qWind" title="Vent : prévision Internet (tableau) ou vent forcé"></button>
@@ -44,7 +40,7 @@
   <button id="qSector" title="Afficher / masquer le secteur de finale">Secteur</button>
   <button id="qPrepo" title="Afficher / masquer la prépo">Prépo</button>
   <button id="qPath" title="Afficher / masquer le chemin des prépos de 0 au vent max">0→7</button>
-  <div class="qpair"><button id="qReperes" title="Afficher / masquer les repères">◆</button><button id="qRepAdd" title="Ajouter un repère">＋</button></div>
+  <div class="qpair"><button id="qReperes" title="Afficher / masquer les repères">◆</button><button id="qRepAdd" title="Nouveau repère : appuie puis touche la carte (ou un point de la mesure)">＋◆</button></div>
   <button id="qMeasure" title="Mesurer cap et distance entre deux points">📏</button>
 </nav>
 
@@ -203,17 +199,17 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="vendor/leaflet.js?v=1.13.0"></script>
-<script src="vendor/leaflet-rotate.js?v=1.13.0"></script>
-<script src="geo.js?v=1.13.0"></script>
-<script src="wmm.js?v=1.13.0"></script>
-<script src="clubs.js?v=1.13.0"></script>
-<script src="wind.js?v=1.13.0"></script>
-<script src="windpick.js?v=1.13.0"></script>
-<script src="pdfview.js?v=1.13.0"></script>
-<script src="lpmove.js?v=1.13.0"></script>
-<script src="app.js?v=1.13.0"></script>
-<script src="showmenu.js?v=1.13.0"></script>
-<script src="photo.js?v=1.13.0"></script>
+<script src="vendor/leaflet.js?v=1.13.1"></script>
+<script src="vendor/leaflet-rotate.js?v=1.13.1"></script>
+<script src="geo.js?v=1.13.1"></script>
+<script src="wmm.js?v=1.13.1"></script>
+<script src="clubs.js?v=1.13.1"></script>
+<script src="wind.js?v=1.13.1"></script>
+<script src="windpick.js?v=1.13.1"></script>
+<script src="pdfview.js?v=1.13.1"></script>
+<script src="lpmove.js?v=1.13.1"></script>
+<script src="app.js?v=1.13.1"></script>
+<script src="showmenu.js?v=1.13.1"></script>
+<script src="photo.js?v=1.13.1"></script>
 </body>
 </html>
