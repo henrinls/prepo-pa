@@ -10,7 +10,7 @@ document.addEventListener('focusout', e => {
   if (!e.target || !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   setTimeout(() => { const a = document.activeElement; if (!a || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) window.scrollTo(0, 0); }, 60);
 });
-const VERSION = '1.16.7';
+const VERSION = '1.17.0';
 const APP_ID = 'pa';
 // Fonds de carte : Esri (monde entier) ou photos aériennes IGN (France, licence ouverte : hors-ligne et PDF autorisés)
 const BASEMAPS = {
@@ -221,7 +221,8 @@ function draw() {
   if ((typeof Photo !== 'undefined')) Photo.sync();
   updateInfo(); syncQuick(); syncPlaceBtn();
   if (!hasTarget()) {
-    if (placing) placeBanner(); else setBanner('Pour commencer : ☰ → ＋ Nouvelle zone, puis place la cible.');
+    if (placing) placeBanner(); else if (current.id) { setBanner('Il manque la cible.'); bannerBtns([{ t: '▶ Poser la cible', fn: () => { stopMeasure(); closeSheet(); repAddOpen = false; placing = 'T'; syncPlaceBtn(); placeBanner(); } }]); } /* v1.17.0 : action directe, plus de chemin dans les menus */
+    else setBanner('Pour commencer : ☰ → ＋ Nouvelle zone.');
     syncSector(null); syncPrepoMk(null); placeMarkers(); return;
   }
   if (!placing) setBanner(hasWind() ? null : 'Pas de vent : prévision pas encore téléchargée (réseau ?). Bouton 🌬 pour la voir ou forcer le vent.');
@@ -805,7 +806,15 @@ function measPtNear(ll) { // point de mesure à moins de 22 px de l'endroit touc
   ['a', 'b'].forEach(k => { if (!meas[k]) return; const d = P.distanceTo(map.latLngToContainerPoint(LL(meas[k]))); if (d < bd) { bd = d; best = { lat: meas[k].lat, lng: meas[k].lng }; } });
   return best;
 }
-function placeBanner() { setBanner(!placing ? null : placing === 'T' ? 'Touche la carte pour placer la cible.' : repAddOpen ? (meas.a ? 'Nouveau repère : touche la carte ou un point de la mesure.' : 'Nouveau repère : touche la carte.') : 'Touche la carte pour placer le repère.'); }
+function placeBanner() { setBanner(!placing ? null : placing === 'T' ? 'Touche la carte pour placer la cible.' : repAddOpen ? (meas.a ? 'Nouveau repère : touche la carte ou un point de la mesure.' : 'Nouveau repère : touche la carte.') : 'Touche la carte pour placer le repère.');
+  if (placing === 'T') bannerBtns([{ t: '📡 Ma position', fn: () => gpsHere($('btnGpsT'), p => { placing = null; syncPlaceBtn(); placeBanner(); map.setView(LL(p), Math.max(map.getZoom(), 17)); setTarget(p); }) }]); }
+/* v1.17.0 (26 nov. 2026, Henri) : boutons dans le bandeau jaune (comme le pas à pas d'ISV) ; « ✓ … » en vert */
+function bannerBtns(btns) {
+  const b = $('banner'); if (b.classList.contains('hidden')) return;
+  const row = document.createElement('div'); row.className = 'bbtns';
+  btns.forEach(x => { const k = document.createElement('button'); k.textContent = x.t; if (x.ok) k.className = 'ok'; k.onclick = e => { e.stopPropagation(); x.fn(); }; row.append(k); });
+  b.insertBefore(row, b.querySelector('.bcancel'));
+}
 ['T', 'R'].forEach(k => $('btnPlace' + k).addEventListener('click', () => {
   if (placing === k) { placing = null; placeBanner(); syncPlaceBtn(); return; } // 2e appui : annule
   if (k === 'R' && !hasTarget()) return toast('Place d\'abord la cible');
